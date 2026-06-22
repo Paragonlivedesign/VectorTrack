@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+.venv/
+.env
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts and build outputs
+logs/
+*.log
+sessions.db
+.coverage
+key.dat
+license.json
+build/
+dist/
+*.exe
+*.pkg
+*.pyz
+*.zip
+*.dll
+*.db

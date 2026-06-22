@@ -1,0 +1,27 @@
+{
+  "project_id": "Vectorworks Spotlight 2025 - PROJECT001",
+  "period_start": "2025-01-08T22:21:39.632361",
+  "period_end": "2025-02-07T22:21:39.632361",
+  "sessions": [
+    {
+      "project_id": "Vectorworks Spotlight 2025 - PROJECT001",
+      "file_path": "Vectorworks Spotlight 2025 - PROJECT001.vwx",
+      "start_time": "2025-02-07T22:05:53.645841",
+      "end_time": "2025-02-07T22:07:06.648807",
+      "active_duration": 72.990143,
+      "hourly_rate": 75.0
+    },
+    {
+      "project_id": "Vectorworks Spotlight 2025 - PROJECT001",
+      "file_path": "Vectorworks Spotlight 2025 - PROJECT001.vwx",
+      "start_time": "2025-02-07T22:07:11.635444",
+      "end_time": "2025-02-07T22:07:24.727888",
+      "active_duration": 8.995705,
+      "hourly_rate": 75.0
+    }
+  ],
+  "summary": {
+    "total_hours": 0.02,
+    "total_billable": 1.71
+  }
+}

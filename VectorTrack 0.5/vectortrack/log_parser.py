@@ -118,6 +118,11 @@ def _roaming_root() -> str:
     return os.path.join(os.path.expanduser('~'), 'AppData', 'Roaming', 'Nemetschek', 'Vectorworks')
 
 
+def vectorworks_log_roaming_dir() -> str:
+    """Return the AppData folder where Vectorworks stores Log.txt by year."""
+    return _roaming_root()
+
+
 def find_all_log_paths() -> List[str]:
     """Return all Vectorworks Log.txt files found (newest year folders first)."""
     root = _roaming_root()

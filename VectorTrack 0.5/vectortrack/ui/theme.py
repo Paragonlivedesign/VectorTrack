@@ -112,6 +112,19 @@ def apply_theme(app: QApplication, mode: str = "light") -> Dict[str, str]:
             border-radius: 6px;
             padding: 4px 6px;
         }}
+        QListWidget {{
+            background: {tokens["surface"]};
+            border: 1px solid {tokens["border"]};
+            border-radius: 6px;
+            color: {tokens["text"]};
+        }}
+        QListWidget::item {{
+            padding: 4px 6px;
+        }}
+        QListWidget::item:selected {{
+            background: {tokens["accent"]};
+            color: {tokens["accent_text"]};
+        }}
         { _table_qss(tokens) }
         """
     )

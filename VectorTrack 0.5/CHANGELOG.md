@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.1-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Single-instance guard** — launching again raises the existing window instead of opening a second copy
+- Updated application icons (tray, About dialog, window)
+- **Logs and reports stored in AppData** — fixes startup and export failures when installed under Program Files
+- **Vectorworks setup prompts** — link dialog when auto-detect fails; toast when it succeeds
+- **Log Library** — shows auto-linked Vectorworks Log.txt paths with open file/folder actions
+- **Idle detection settings** — optional pause when idle, configurable bypass when Vectorworks is foreground, a file is open, or the log shows open
+- **Reports** — Master Summary, Project Detail, and Client Statement types; improved filtering and export
+- **`dev.ps1`** — run from source during development without reinstalling
+- Installer artifact: `VectorTrack-0.5.1-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.1 beta**
+
+### Repository
+
+- Added [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) — versioning, branches, and release checklist
+
+---
+
 ## [0.5.0-beta] — 2026-06
 
 ### Repository
@@ -13,10 +37,6 @@
 
 - Open Files and project summaries show **project names** instead of project numbers
 - **Project numbers are optional** when creating projects (name is required)
-- **Single-instance guard** — launching again raises the existing window instead of opening a second copy
-- Updated application icons (tray, About dialog, window)
-- **Logs stored in AppData** — fixes startup failure when installed under Program Files
-- **Reports stored in AppData** — same fix for PDF/CSV output folder
 - Installer artifact: `VectorTrack-0.5.0-Setup.exe`
 
 ### VectorTrackScript (plug-in)

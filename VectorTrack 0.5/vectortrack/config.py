@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 APP_NAME = "VectorTrack"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 APP_BETA = True
 
 
@@ -35,6 +35,16 @@ LEGACY_DB_FILENAME = "sessions.db"
 
 DEFAULT_HOURLY_RATE = 75.0
 DEFAULT_IDLE_MINUTES = 5
+DEFAULT_IDLE_PAUSE_ENABLED = True
+DEFAULT_IDLE_BYPASS_MODE = "none"
+IDLE_BYPASS_MODES = ("none", "vw_foreground", "vw_file_open", "log_open")
+IDLE_TIMEOUT_HELPER_TEXT = (
+    "VectorTrack pauses the live timer when it detects no mouse or keyboard activity "
+    "anywhere on your computer for the timeout period. Vectorworks must still be the "
+    "active application unless you choose a file-open bypass below. This is separate "
+    "from Pause Tracking (Ctrl+Shift+P), which you control manually. Move the mouse "
+    "or press a key to resume after idle."
+)
 DEFAULT_ROUNDING_MINUTES = 15
 BUDGET_WARN_PERCENT = 0.8
 LOG_SYNC_INTERVAL_SEC = 60

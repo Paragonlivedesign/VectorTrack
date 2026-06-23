@@ -2,6 +2,7 @@
 Tests for the process monitor module.
 """
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -140,3 +141,24 @@ def test_refresh_detects_closed_files(mock_enum_windows, mock_foreground, proces
     closed = process_monitor.get_closed_files()
     assert "Old.vwx" in closed
     assert process_monitor.vectorworks_windows[0].is_active is True
+
+
+def test_suggested_exe_browse_directory_uses_latest_install(tmp_path):
+    monitor = ProcessMonitor()
+    installs = {
+        "Vectorworks 2025": str(tmp_path / "vw" / "2025" / "Vectorworks.exe"),
+    }
+    for exe in installs.values():
+        Path(exe).parent.mkdir(parents=True, exist_ok=True)
+        Path(exe).write_text("", encoding="utf-8")
+    monitor._known_paths = installs
+    assert monitor.suggested_exe_browse_directory() == str(tmp_path / "vw" / "2025")
+
+
+def test_suggested_exe_browse_directory_falls_back_to_program_files(monkeypatch):
+    monitor = ProcessMonitor()
+    monitor._known_paths = {}
+    monkeypatch.setattr(monitor, "find_vectorworks_installations", lambda: {})
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    suggested = monitor.suggested_exe_browse_directory()
+    assert "Program Files" in suggested

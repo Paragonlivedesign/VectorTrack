@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QSettings
 
-from vectortrack.config import format_version
+from vectortrack.config import DEFAULT_IDLE_PAUSE_ENABLED, IDLE_TIMEOUT_HELPER_TEXT, format_version
 from PyQt6.QtWidgets import (
     QCheckBox,
     QLabel,
@@ -32,6 +32,11 @@ class FirstRunWizard(QWizard):
         self.minimize_tray_check.setChecked(settings.value("minimize_to_tray", True, type=bool))
         self.dark_mode_check = QCheckBox("Use dark mode")
         self.dark_mode_check.setChecked(settings.value("dark_mode_enabled", False, type=bool))
+        self.idle_pause_enabled = QCheckBox("Pause tracking when idle")
+        self.idle_pause_enabled.setChecked(
+            settings.value("idle_pause_enabled", DEFAULT_IDLE_PAUSE_ENABLED, type=bool)
+        )
+        self.idle_pause_enabled.toggled.connect(self._sync_idle_controls)
         self.idle_minutes = QSpinBox()
         self.idle_minutes.setRange(1, 120)
         self.idle_minutes.setValue(settings.value("default_idle_timeout", 5, type=int))
@@ -40,7 +45,15 @@ class FirstRunWizard(QWizard):
         self.finished.connect(self._save_values)
 
     def _build_pages(self) -> None:
-        self.addPage(self._page("Welcome", f"Welcome to {format_version(include_product_name=True)}.\nThis wizard will configure common defaults."))
+        self.addPage(
+            self._page(
+                "Welcome",
+                f"Welcome to {format_version(include_product_name=True)}.\n\n"
+                "VectorTrack will try to find Vectorworks automatically. If it cannot, "
+                "you will be prompted to select Vectorworks.exe. Historical hours are read "
+                "from Vectorworks Log.txt in your AppData folder.",
+            )
+        )
         self.addPage(self._checkbox_page("Tracking", "Choose how tracking should run.", self.auto_track_check))
         self.addPage(self._checkbox_page("Log Imports", "Configure historical log import behavior.", self.import_logs_check))
         self.addPage(self._checkbox_page("Merge Years", "Include previous years when scanning logs.", self.merge_years_check))
@@ -76,11 +89,19 @@ class FirstRunWizard(QWizard):
         page.setTitle("Appearance and Idle")
         layout = QVBoxLayout(page)
         layout.addWidget(self.dark_mode_check)
+        layout.addWidget(self.idle_pause_enabled)
         idle_label = QLabel("Idle timeout (minutes)")
         layout.addWidget(idle_label)
         layout.addWidget(self.idle_minutes)
+        idle_help = QLabel(IDLE_TIMEOUT_HELPER_TEXT)
+        idle_help.setWordWrap(True)
+        layout.addWidget(idle_help)
+        self._sync_idle_controls(self.idle_pause_enabled.isChecked())
         layout.addStretch()
         return page
+
+    def _sync_idle_controls(self, enabled: bool) -> None:
+        self.idle_minutes.setEnabled(enabled)
 
     def _save_values(self) -> None:
         self.settings.setValue("auto_track_enabled", self.auto_track_check.isChecked())
@@ -88,5 +109,6 @@ class FirstRunWizard(QWizard):
         self.settings.setValue("vw_log_merge_years", self.merge_years_check.isChecked())
         self.settings.setValue("minimize_to_tray", self.minimize_tray_check.isChecked())
         self.settings.setValue("dark_mode_enabled", self.dark_mode_check.isChecked())
+        self.settings.setValue("idle_pause_enabled", self.idle_pause_enabled.isChecked())
         self.settings.setValue("default_idle_timeout", self.idle_minutes.value())
         self.settings.setValue("wizard_completed", True)

@@ -57,6 +57,7 @@ a = Analysis(
         'vectortrack.services.billing_service',
         'vectortrack.services.import_export',
         'vectortrack.services.log_service',
+        'vectortrack.services.report_data',
         'vectortrack.services.report_service',
         'vectortrack.services.tracking_service',
         'vectortrack.services.session_aggregator',

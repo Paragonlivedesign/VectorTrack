@@ -4,7 +4,7 @@ Time tracking built around your Vectorworks workflow — a Windows desktop app a
 
 | | |
 |---|---|
-| **Version** | 0.5.0 beta |
+| **Version** | 0.5.1 beta |
 | **Platform** | Windows 10+ · Vectorworks 2025 / 2026 (plug-in) |
 | **Publisher** | [Paragon Live Design](https://paragonlivedesign.com) |
 | **Support** | Cody@Paragonlivedesign.com |
@@ -21,7 +21,7 @@ Each release includes:
 
 | File | What it is |
 |------|------------|
-| **`VectorTrack-0.5.0-Setup.exe`** | **Recommended.** Installs the desktop app with Start Menu shortcut and uninstaller. |
+| **`VectorTrack-0.5.1-Setup.exe`** | **Recommended.** Installs the desktop app with Start Menu shortcut and uninstaller. |
 | **`VectorTrackScript_0.5.zip`** | Optional Vectorworks plug-in — install through Plug-in Manager. |
 
 You do not need both products, but they work well together.
@@ -56,7 +56,7 @@ Neither product requires the other.
 
 ## Install — VectorTrack (desktop)
 
-1. Download **`VectorTrack-0.5.0-Setup.exe`** from [Latest Release](https://github.com/Paragonlivedesign/VectorTrack/releases/latest).
+1. Download **`VectorTrack-0.5.1-Setup.exe`** from [Latest Release](https://github.com/Paragonlivedesign/VectorTrack/releases/latest).
 2. Run the installer. If SmartScreen appears, click **More info**, then **Run anyway**.
 3. Optionally check **Create a desktop shortcut** during setup.
 4. Launch **VectorTrack** from the Start Menu. The app runs in the background and appears in the system tray.
@@ -122,7 +122,7 @@ Email **Cody@Paragonlivedesign.com** with:
 
 ## For developers
 
-Build instructions, tests, and the release checklist live in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+Build and test: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md). Versioning, branches, and publishing betas: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ---
 

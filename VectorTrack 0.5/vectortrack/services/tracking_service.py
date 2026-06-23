@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Dict, Optional
 
 from ..activity_monitor import ActivityMonitor
+from ..config import DEFAULT_IDLE_BYPASS_MODE, DEFAULT_IDLE_PAUSE_ENABLED, IDLE_BYPASS_MODES
 from ..process_monitor import ProcessMonitor, WindowInfo
 
 
@@ -59,6 +60,28 @@ class TrackingService:
         self.last_autosave_at: Optional[datetime] = None
         self.meeting_topic: Optional[str] = None
         self.meeting_expires_at: Optional[datetime] = None
+        self.idle_pause_enabled = DEFAULT_IDLE_PAUSE_ENABLED
+        self.idle_bypass_mode = DEFAULT_IDLE_BYPASS_MODE
+        self.log_open_checker: Optional[Callable[[str], bool]] = None
+
+    def set_idle_pause_enabled(self, enabled: bool) -> None:
+        self.idle_pause_enabled = bool(enabled)
+
+    def set_idle_bypass_mode(self, mode: str) -> None:
+        if mode in IDLE_BYPASS_MODES:
+            self.idle_bypass_mode = mode
+
+    def should_count_time(self, file_path: str) -> bool:
+        if self.is_paused:
+            return False
+        return self._should_advance_time(file_path)
+
+    def is_idle_blocked(self, file_path: str) -> bool:
+        if self.is_paused or not self.idle_pause_enabled:
+            return False
+        if self.activity_monitor.is_active():
+            return False
+        return not self._idle_bypass_active(file_path)
 
     def start(self) -> None:
         self.is_running = True
@@ -105,10 +128,24 @@ class TrackingService:
 
         windows = self.process_monitor.refresh()
         active_window = self.process_monitor.get_active_window()
-        if not windows or not active_window or not active_window.file_path:
+        open_paths = {window.file_path for window in windows if window.file_path}
+
+        file_path: Optional[str] = None
+        if active_window and active_window.file_path and not self._is_untitled(active_window.file_path):
+            file_path = active_window.file_path
+        elif (
+            self.idle_bypass_mode == "vw_file_open"
+            and self.current_state
+            and self.current_state.file_path in open_paths
+            and self.idle_pause_enabled
+            and not self.activity_monitor.is_active()
+            and not self.is_paused
+        ):
+            file_path = self.current_state.file_path
+
+        if not file_path:
             return self.current_state
 
-        file_path = active_window.file_path
         if self._is_untitled(file_path):
             if self.untitled_hook:
                 self.untitled_hook(file_path)
@@ -117,10 +154,34 @@ class TrackingService:
         if self.current_state is None or self.current_state.file_path != file_path:
             self._switch_to_file(file_path)
 
-        if self.current_state and self.activity_monitor.is_active() and not self.is_paused:
+        if self.current_state and self._should_advance_time(file_path) and not self.is_paused:
             self._advance_state(self.current_state, now)
         self._autosave_if_needed(now)
         return self.current_state
+
+    def _should_advance_time(self, file_path: str) -> bool:
+        if not self.idle_pause_enabled:
+            return True
+        if self.activity_monitor.is_active():
+            return True
+        return self._idle_bypass_active(file_path)
+
+    def _idle_bypass_active(self, file_path: str) -> bool:
+        mode = self.idle_bypass_mode
+        if mode == "none":
+            return False
+        if mode == "vw_foreground":
+            active_window = self.process_monitor.get_active_window()
+            return bool(active_window and active_window.file_path == file_path)
+        if mode == "vw_file_open":
+            windows = self.process_monitor.refresh()
+            open_paths = {window.file_path for window in windows if window.file_path}
+            return file_path in open_paths
+        if mode == "log_open":
+            if self.log_open_checker is None:
+                return False
+            return bool(self.log_open_checker(file_path))
+        return False
 
     def _switch_to_file(self, file_path: str, is_meeting: bool = False) -> TrackingState:
         self._end_current_session()

@@ -4,13 +4,13 @@ Windows desktop time tracker for Vectorworks — source tree for the standalone 
 
 | | |
 |---|---|
-| **Version** | 0.5.0 beta |
+| **Version** | 0.5.1 beta |
 | **Platform** | Windows 10+ |
 | **Publisher** | Paragon Live Design |
 
 **Download and install:** use the Windows installer from **[GitHub Releases](https://github.com/Paragonlivedesign/VectorTrack/releases/latest)** — see the [repository README](../README.md) for user-facing docs.
 
-**Build from source:** see [`docs/DEVELOPMENT.md`](../docs/DEVELOPMENT.md).
+**Build from source:** [`docs/DEVELOPMENT.md`](../docs/DEVELOPMENT.md) — day-to-day dev: `.\dev.ps1` (no reinstall needed). **Releases and versioning:** [`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md).
 
 ---
 

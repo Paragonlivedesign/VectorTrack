@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
 
 from vectortrack.db.repository import Repository
 from vectortrack.models import TimeSession
+from vectortrack.services.report_data import ReportDataBuilder
+from vectortrack.services.report_service import ReportService
 from vectortrack.services.session_aggregator import SessionAggregator, UnifiedSession
 from vectortrack.ui.dialogs.session_edit_dialog import SessionEditDialog
 from vectortrack.ui.heatmap_widget import HeatmapWidget
@@ -40,6 +42,8 @@ class SessionExplorerDialog(QDialog):
         target: str,
         project_id: str,
         reload_callback: Callable[[], List[UnifiedSession]],
+        report_service: Optional[ReportService] = None,
+        data_builder: Optional[ReportDataBuilder] = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -49,6 +53,8 @@ class SessionExplorerDialog(QDialog):
         self.target = target
         self.project_id = project_id
         self.reload_callback = reload_callback
+        self.report_service = report_service
+        self.data_builder = data_builder
         self.sessions: List[UnifiedSession] = []
         self._day_filter: Optional[date] = None
         self._read_only = repository.is_project_locked(project_id)
@@ -447,22 +453,45 @@ class SessionExplorerDialog(QDialog):
         )
         if not path:
             return
+        sessions = self._active_sessions()
+        if self.report_service is not None and self.data_builder is not None:
+            rows = self.data_builder.rows_from_unified_sessions(sessions, self.project_id)
+            active_rows = [row for row in rows if row.billable and not row.excluded]
+            self.report_service.export_unified_csv(active_rows, path)
+            QMessageBox.information(self, "Export complete", f"Saved:\n{path}")
+            return
         with open(path, "w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
             writer.writerow(
-                ["Start", "End", "Hours", "File", "Machine", "Source", "Rate", "Amount", "Status"]
+                [
+                    "date",
+                    "client_name",
+                    "project_name",
+                    "project",
+                    "file",
+                    "raw_hours",
+                    "billed_hours",
+                    "rate",
+                    "raw_amount",
+                    "billed_amount",
+                    "billable",
+                ]
             )
-            for session in self._active_sessions():
+            for session in sessions:
+                billable = "no" if session.is_excluded or session.conflict_ids else "yes"
                 writer.writerow(
                     [
-                        session.start.isoformat(),
-                        session.end.isoformat(),
-                        f"{session.hours:.2f}",
+                        session.start.strftime("%Y-%m-%d"),
+                        "",
+                        self.project_id,
+                        self.project_id,
                         session.file_alias,
-                        session.machine_id,
-                        session.source,
+                        f"{session.hours:.2f}",
+                        f"{session.hours:.2f}",
                         f"{session.hourly_rate:.2f}",
                         f"{session.amount:.2f}",
-                        session.status,
+                        f"{session.amount:.2f}",
+                        billable,
                     ]
                 )
+        QMessageBox.information(self, "Export complete", f"Saved:\n{path}")

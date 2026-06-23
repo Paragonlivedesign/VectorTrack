@@ -4,13 +4,11 @@ Internal documentation for building, testing, and publishing VectorTrack. Beta t
 
 ---
 
-## Versioning
+## Versioning and releases
 
-Pre-1.0 beta releases use **`0.5.x`** semver (e.g. `0.5.0`, `0.5.1`). Active source lives in **`VectorTrack 0.5/`** and **`VectorTrackScript 0.5/`** on `main`.
+SemVer, branch model, version bump files, and the step-by-step release checklist are in **[`DEPLOYMENT.md`](DEPLOYMENT.md)**.
 
-Git tags for releases follow **`v0.5.0-beta`**, **`v0.5.1-beta`**, etc.
-
-Legacy prototypes (alpha, v0, v1, early TimeTracker scripts) are preserved on the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.
+Active source lives in **`VectorTrack 0.5/`** and **`VectorTrackScript 0.5/`** on `main`. Legacy prototypes are on the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.
 
 Version history: [`VectorTrack 0.5/CHANGELOG.md`](../VectorTrack%200.5/CHANGELOG.md)
 
@@ -40,7 +38,40 @@ Older code: check out the [`archive`](https://github.com/Paragonlivedesign/Vecto
 
 ---
 
-## Run from source
+## Daily development (no reinstall)
+
+For your own work on `main`, **run from source**. You only need to rebuild the installer when publishing a beta for testers.
+
+| Workflow | When to use | Command |
+|----------|-------------|---------|
+| **Dev (recommended)** | Every code change while you develop | `.\dev.ps1` in `VectorTrack 0.5/` |
+| **Installed app** | Testing the real installer experience | Run `VectorTrack-0.5.0-Setup.exe` once; use Start Menu after that |
+| **Release build** | Shipping to GitHub Releases / testers | `.\build.ps1 -WithInstaller` |
+
+### Quick start
+
+```powershell
+cd "VectorTrack 0.5"
+.\dev.ps1
+```
+
+First run creates `.venv/` and installs dependencies. After you change Python code, **close VectorTrack and run `.\dev.ps1` again** — no rebuild, no reinstall.
+
+**Shared data:** dev and installed builds both use `%LOCALAPPDATA%\Paragon\VectorTrack\` (sessions, settings, logs, reports). Your database and preferences carry over between dev and installed runs.
+
+**Single instance:** quit the installed app (system tray) before starting `.\dev.ps1`, or the new session will exit immediately.
+
+**Portable dev data** (optional, isolated from installed app):
+
+```powershell
+.\dev.ps1 --portable
+```
+
+Creates `VectorTrack 0.5/data/` next to the source tree instead of using AppData.
+
+---
+
+## Run from source (manual)
 
 ### Desktop app
 
@@ -51,7 +82,9 @@ python -m venv .venv
 .\.venv\Scripts\python -m vectortrack
 ```
 
-Optional flags: `--portable` (store data next to the executable), `--debug`.
+Optional flags: `--portable` (store data next to the source tree), `--debug`.
+
+Or use [`dev.ps1`](../VectorTrack%200.5/dev.ps1) which wraps the above.
 
 ### Vectorworks plug-in
 
@@ -114,35 +147,7 @@ Produces `VectorTrackScript_0.5.zip` in that folder. Copy the generated `.vsm` f
 
 `main` is living source. Testers should install from **tagged Releases**, not from files on the branch.
 
-### Checklist
-
-1. Update version strings if needed (`vectortrack/__init__.py`, `installer.iss`, plug-in version constants).
-2. Update [`VectorTrack 0.5/CHANGELOG.md`](../VectorTrack%200.5/CHANGELOG.md).
-3. Build desktop installer: `.\build.ps1 -WithInstaller` in `VectorTrack 0.5/`.
-4. Build plug-in zip: `.\package_plugin.ps1` in `VectorTrackScript 0.5/`.
-5. Commit and push source changes to `main` (do **not** commit `release/` binaries).
-6. On GitHub: **Releases → Draft new release**.
-   - Tag: `v0.5.0-beta` (match semver + `-beta` suffix)
-   - Title: e.g. `VectorTrack 0.5.0 beta`
-   - Release notes: copy the relevant section from CHANGELOG
-   - Attach assets:
-     - `VectorTrack-0.5.0-Setup.exe`
-     - `VectorTrackScript_0.5.zip`
-7. Publish the release.
-
-For patch releases (e.g. 0.5.1), repeat with a new tag. Testers can reinstall from the new Release; uninstalling the old installer **keeps** user data in `%LOCALAPPDATA%\Paragon\VectorTrack\` unless they choose to remove it.
-
-### gh CLI (optional)
-
-```powershell
-gh release create v0.5.0-beta `
-  "VectorTrack 0.5/release/VectorTrack-0.5.0-Setup.exe" `
-  "VectorTrackScript 0.5/VectorTrackScript_0.5.zip" `
-  --title "VectorTrack 0.5.0 beta" `
-  --notes-file "VectorTrack 0.5/CHANGELOG.md"
-```
-
-Adjust paths and notes as needed.
+See **[`DEPLOYMENT.md`](DEPLOYMENT.md)** for the full release workflow (version bumps, build order, smoke test, tagging, and optional `gh` CLI).
 
 ---
 

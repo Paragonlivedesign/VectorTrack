@@ -35,6 +35,7 @@ class HUDWindow(QWidget):
         amount: float,
         *,
         is_tracking: bool = False,
+        tracking_status: str = "tracking",
         project_name: str | None = None,
     ) -> None:
         self.file_label.setText(file_name or "No active file")
@@ -42,8 +43,12 @@ class HUDWindow(QWidget):
         self.time_label.setText(f"{prefix} {format_timer_hours(hours)}")
         if is_tracking:
             self.status_label.setText("Tracking")
+        elif tracking_status == "paused":
+            self.status_label.setText("Paused")
+        elif tracking_status == "idle":
+            self.status_label.setText("Idle")
         elif file_name and file_name != "No active file":
-            self.status_label.setText("Paused / idle")
+            self.status_label.setText("Paused")
         else:
             self.status_label.setText("")
         if project_name:

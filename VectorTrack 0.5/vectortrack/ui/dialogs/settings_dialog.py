@@ -5,6 +5,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFileDialog,
@@ -18,7 +19,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from vectortrack.config import DEFAULT_HOURLY_RATE, DEFAULT_IDLE_MINUTES, ENFORCE_LICENSING
+from vectortrack.config import (
+    DEFAULT_HOURLY_RATE,
+    DEFAULT_IDLE_BYPASS_MODE,
+    DEFAULT_IDLE_MINUTES,
+    DEFAULT_IDLE_PAUSE_ENABLED,
+    ENFORCE_LICENSING,
+    IDLE_BYPASS_MODES,
+    IDLE_TIMEOUT_HELPER_TEXT,
+)
 from vectortrack.services.autostart import is_enabled as autostart_is_enabled
 from vectortrack.sync_config import default_machine_id
 
@@ -38,10 +47,44 @@ class SettingsDialog(QDialog):
         self.default_rate.setValue(settings.value("default_hourly_rate", DEFAULT_HOURLY_RATE, type=float))
         form.addRow("Default hourly rate", self.default_rate)
 
+        form.addRow("", QLabel("Idle detection"))
+        self.idle_pause_enabled = QCheckBox("Pause tracking when idle")
+        self.idle_pause_enabled.setChecked(
+            settings.value("idle_pause_enabled", DEFAULT_IDLE_PAUSE_ENABLED, type=bool)
+        )
+        self.idle_pause_enabled.toggled.connect(self._sync_idle_controls)
+        form.addRow("", self.idle_pause_enabled)
+
         self.idle_minutes = QSpinBox()
         self.idle_minutes.setRange(1, 240)
         self.idle_minutes.setValue(settings.value("default_idle_timeout", DEFAULT_IDLE_MINUTES, type=int))
         form.addRow("Idle timeout (minutes)", self.idle_minutes)
+
+        self.idle_bypass_mode = QComboBox()
+        for mode, label in (
+            ("none", "Never (always pause when idle)"),
+            ("vw_foreground", "Vectorworks is still the active app"),
+            ("vw_file_open", "Vectorworks file is still open"),
+            ("log_open", "Vectorworks log shows file as open"),
+        ):
+            self.idle_bypass_mode.addItem(label, mode)
+        saved_bypass = settings.value("idle_bypass_mode", DEFAULT_IDLE_BYPASS_MODE, type=str)
+        if saved_bypass not in IDLE_BYPASS_MODES:
+            saved_bypass = DEFAULT_IDLE_BYPASS_MODE
+        bypass_index = self.idle_bypass_mode.findData(saved_bypass)
+        if bypass_index >= 0:
+            self.idle_bypass_mode.setCurrentIndex(bypass_index)
+        self.idle_bypass_mode.setToolTip(
+            "When idle, optionally keep the live timer running if a file remains open. "
+            "Vectorworks must still be foreground unless you choose the file-open option."
+        )
+        form.addRow("When idle, keep tracking if…", self.idle_bypass_mode)
+
+        idle_help = QLabel(IDLE_TIMEOUT_HELPER_TEXT)
+        idle_help.setWordWrap(True)
+        idle_help.setObjectName("muted")
+        form.addRow("", idle_help)
+        self._sync_idle_controls(self.idle_pause_enabled.isChecked())
 
         self.auto_track = QCheckBox("Auto-track active file")
         self.auto_track.setChecked(settings.value("auto_track_enabled", True, type=bool))
@@ -127,6 +170,10 @@ class SettingsDialog(QDialog):
         buttons.addWidget(cancel_btn)
         layout.addLayout(buttons)
 
+    def _sync_idle_controls(self, enabled: bool) -> None:
+        self.idle_minutes.setEnabled(enabled)
+        self.idle_bypass_mode.setEnabled(enabled)
+
     def _browse_sync_folder(self) -> None:
         start = self.sync_folder.text().strip()
         folder = QFileDialog.getExistingDirectory(
@@ -140,7 +187,9 @@ class SettingsDialog(QDialog):
     def values(self) -> dict[str, object]:
         return {
             "default_hourly_rate": self.default_rate.value(),
+            "idle_pause_enabled": self.idle_pause_enabled.isChecked(),
             "default_idle_timeout": self.idle_minutes.value(),
+            "idle_bypass_mode": self.idle_bypass_mode.currentData(),
             "auto_track_enabled": self.auto_track.isChecked(),
             "dark_mode_enabled": self.dark_mode.isChecked(),
             "import_vw_log_history": self.import_log_history.isChecked(),

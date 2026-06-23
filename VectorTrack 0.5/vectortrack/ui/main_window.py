@@ -12,6 +12,7 @@ from PyQt6.QtCore import QSettings, Qt, QTimer, QUrl
 from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -36,6 +37,7 @@ from vectortrack.services.backup_service import BackupService
 from vectortrack.services.billing_service import BillingContext, BillingService
 from vectortrack.services.import_export import ImportExportService
 from vectortrack.services.log_service import LogService
+from vectortrack.services.report_data import ReportDataBuilder
 from vectortrack.services.report_service import ReportService
 from vectortrack.services.autostart import set_enabled as set_autostart_enabled
 from vectortrack.services.hotkey_service import HotkeyService
@@ -60,6 +62,7 @@ from vectortrack.ui.dialogs.donate_dialog import DonateDialog
 from vectortrack.ui.dialogs.first_run_wizard import FirstRunWizard
 from vectortrack.ui.dialogs.import_bundle_dialog import ImportBundleDialog
 from vectortrack.ui.dialogs.log_library_dialog import LogLibraryDialog
+from vectortrack.ui.dialogs.vectorworks_setup_dialog import VectorworksSetupDialog
 from vectortrack.ui.dialogs.manual_entry_dialog import ManualEntryDialog
 from vectortrack.ui.dialogs.project_assign_dialog import ProjectAssignDialog
 from vectortrack.ui.dialogs.project_editor_dialog import ProjectEditorDialog
@@ -113,6 +116,14 @@ class MainWindow(QMainWindow):
         self.global_hotkeys_enabled = self.settings.value("global_hotkeys_enabled", True, type=bool)
         self.eod_notify_enabled = self.settings.value("eod_notify_enabled", True, type=bool)
         self.eod_notify_hour = int(self.settings.value("eod_notify_hour", 17, type=int))
+        self.idle_pause_enabled = self.settings.value(
+            "idle_pause_enabled", config.DEFAULT_IDLE_PAUSE_ENABLED, type=bool
+        )
+        self.idle_bypass_mode = self.settings.value(
+            "idle_bypass_mode", config.DEFAULT_IDLE_BYPASS_MODE, type=str
+        )
+        if self.idle_bypass_mode not in config.IDLE_BYPASS_MODES:
+            self.idle_bypass_mode = config.DEFAULT_IDLE_BYPASS_MODE
         self.sync_config = self._load_sync_config()
         self.session_aggregator = SessionAggregator(self.repository)
         self.log_cache: dict[str, dict[str, float | datetime]] = {}
@@ -147,11 +158,12 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_statusbar()
         self._restore_window_geometry()
-        self._auto_detect_vectorworks()
+        self._vw_detect_mode = self._auto_detect_vectorworks()
         self._apply_saved_theme()
         self._write_paths_manifest()
 
         self.tracking_service.start()
+        self._apply_idle_settings()
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._tick)
         self.update_timer.start(1000)
@@ -170,8 +182,27 @@ class MainWindow(QMainWindow):
         self.hotkey_service.start()
 
         QTimer.singleShot(50, self._show_first_run_wizard_if_needed)
+        QTimer.singleShot(200, self._show_vectorworks_setup_prompts)
         QTimer.singleShot(0, self._tick)
         QTimer.singleShot(150, self._refresh_history)
+
+    def _apply_idle_settings(self) -> None:
+        self.tracking_service.set_idle_pause_enabled(self.idle_pause_enabled)
+        self.tracking_service.set_idle_bypass_mode(self.idle_bypass_mode)
+        self.tracking_service.log_open_checker = self._log_file_is_open
+
+    def _log_file_is_open(self, file_path: str) -> bool:
+        if not self.import_vw_log_history:
+            return False
+        _, open_hours = self._log_stats_for_file(file_path, os.path.basename(file_path))
+        return open_hours > 0
+
+    def _tracking_status_for_state(self, state) -> str:
+        if self.tracking_service.is_paused:
+            return "paused"
+        if state is not None and self.tracking_service.is_idle_blocked(state.file_path):
+            return "idle"
+        return "tracking"
 
     @classmethod
     def create_default(cls) -> "MainWindow":
@@ -308,7 +339,10 @@ class MainWindow(QMainWindow):
 
         reports_menu = self.menuBar().addMenu("Reports")
         reports_menu.addAction(self.report_action)
-        reports_menu.addAction("Export Master PDF", self._export_master_report)
+        reports_menu.addAction(
+            "Master Report...",
+            lambda: self._open_report_dialog(report_type="master"),
+        )
         reports_menu.addAction("Generate Selected Project PDF", self._report_selected_project)
 
         help_menu = self.menuBar().addMenu("Help")
@@ -370,24 +404,68 @@ class MainWindow(QMainWindow):
             return int(match.group(1))
         return datetime.now().year
 
-    def _auto_detect_vectorworks(self) -> None:
+    def _auto_detect_vectorworks(self) -> str:
+        """Configure Vectorworks.exe path. Returns saved, auto, or missing."""
         saved = self.settings.value("vectorworks_path", "", type=str)
         if saved and os.path.exists(saved):
             try:
                 self.process_monitor.set_vectorworks_path(saved)
-                return
+                return "saved"
             except Exception:
                 pass
         path = self.process_monitor.auto_select_vectorworks()
         if path:
             self.settings.setValue("vectorworks_path", path)
             self._write_paths_manifest()
+            return "auto"
+        return "missing"
+
+    def _show_vectorworks_setup_prompts(self) -> None:
+        if not self.process_monitor.vectorworks_path:
+            if self.settings.value("vw_exe_prompt_skipped", False, type=bool):
+                self.statusBar().showMessage(
+                    "Vectorworks executable not set — use File → Select Vectorworks EXE…",
+                    15000,
+                )
+                return
+            dialog = VectorworksSetupDialog(
+                browse_directory=self.process_monitor.suggested_exe_browse_directory(),
+                parent=self,
+            )
+            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
+                try:
+                    self.process_monitor.set_vectorworks_path(dialog.selected_path)
+                    self.settings.setValue("vectorworks_path", dialog.selected_path)
+                    self.settings.setValue("vw_auto_detect_notified", True)
+                    self._write_paths_manifest()
+                    self._tick()
+                except Exception as exc:
+                    QMessageBox.warning(self, "Vectorworks path error", str(exc))
+            else:
+                self.settings.setValue("vw_exe_prompt_skipped", True)
+                self.statusBar().showMessage(
+                    "Vectorworks executable not set — use File → Select Vectorworks EXE…",
+                    15000,
+                )
+            return
+
+        if (
+            self._vw_detect_mode == "auto"
+            and not self.settings.value("vw_auto_detect_notified", False, type=bool)
+        ):
+            exe_path = self.process_monitor.vectorworks_path or ""
+            version_label = os.path.basename(os.path.dirname(exe_path)) or "Vectorworks"
+            self.notification_service.notify(
+                "Vectorworks linked",
+                f"Using {version_label} at {exe_path}. Change via File → Select Vectorworks EXE…",
+            )
+            self.settings.setValue("vw_auto_detect_notified", True)
 
     def _select_vectorworks_exe(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Vectorworks executable",
-            "",
+            self.process_monitor.suggested_exe_browse_directory(),
             "Executable (*.exe);;All files (*)",
         )
         if not file_path:
@@ -395,6 +473,8 @@ class MainWindow(QMainWindow):
         try:
             self.process_monitor.set_vectorworks_path(file_path)
             self.settings.setValue("vectorworks_path", file_path)
+            self.settings.setValue("vw_exe_prompt_skipped", False)
+            self.settings.setValue("vw_auto_detect_notified", True)
             self._write_paths_manifest()
             self._tick()
         except Exception as exc:
@@ -504,6 +584,8 @@ class MainWindow(QMainWindow):
     def _on_activity_state_changed(self, is_active: bool) -> None:
         if is_active:
             self._idle_notified = False
+            return
+        if not self.idle_pause_enabled:
             return
         if self._idle_notified or not self.notifications_enabled:
             return
@@ -621,12 +703,18 @@ class MainWindow(QMainWindow):
         )
         if row_kind == "active":
             status = "Active"
-            if self.tracking_service.is_paused and state is self.tracking_service.current_state:
-                status = "Active (Paused)"
+            if state is self.tracking_service.current_state:
+                if self.tracking_service.is_paused:
+                    status = "Active (Paused)"
+                elif self.tracking_service.is_idle_blocked(state.file_path):
+                    status = "Active (Idle)"
         elif is_open:
             status = "Open"
-            if self.tracking_service.is_paused and state is self.tracking_service.current_state:
-                status = "Paused"
+            if state is self.tracking_service.current_state:
+                if self.tracking_service.is_paused:
+                    status = "Paused"
+                elif self.tracking_service.is_idle_blocked(state.file_path):
+                    status = "Open (Idle)"
         else:
             status = "Recent"
         is_tracking = self._is_live_tracking(state, row_kind)
@@ -646,15 +734,15 @@ class MainWindow(QMainWindow):
         }
 
     def _is_live_tracking(self, state, row_kind: str) -> bool:
-        if row_kind != "active" or state is None:
+        if state is None:
             return False
         if state is not self.tracking_service.current_state:
             return False
-        if self.tracking_service.is_paused:
+        if row_kind not in ("active", "open"):
             return False
         if self.tracking_service.meeting_topic or state.meeting_mode:
             return True
-        return self.activity_monitor.is_active()
+        return self.tracking_service.should_count_time(state.file_path)
 
     def _rows_from_tracking(self) -> list[dict[str, object]]:
         windows = self.process_monitor.refresh()
@@ -782,12 +870,14 @@ class MainWindow(QMainWindow):
         is_tracking = bool(row.get("is_tracking")) if row else False
         if not is_tracking:
             is_tracking = self._is_live_tracking(current, row_kind)
+        tracking_status = self._tracking_status_for_state(current)
         project_name = str(row.get("project_code") or row.get("project") or current.project_id) if row else current.project_id
         self.hud.set_stats(
             os.path.basename(current.file_path),
             float(current.tracked_hours),
             earned,
             is_tracking=is_tracking,
+            tracking_status=tracking_status,
             project_name=project_name,
         )
 
@@ -933,6 +1023,10 @@ class MainWindow(QMainWindow):
         self.global_hotkeys_enabled = bool(values.get("global_hotkeys_enabled", True))
         self.eod_notify_enabled = bool(values.get("eod_notify_enabled", True))
         self.eod_notify_hour = int(values.get("eod_notify_hour", 17))
+        self.idle_pause_enabled = bool(values.get("idle_pause_enabled", config.DEFAULT_IDLE_PAUSE_ENABLED))
+        self.idle_bypass_mode = str(values.get("idle_bypass_mode", config.DEFAULT_IDLE_BYPASS_MODE))
+        if self.idle_bypass_mode not in config.IDLE_BYPASS_MODES:
+            self.idle_bypass_mode = config.DEFAULT_IDLE_BYPASS_MODE
         self.sync_config = SyncConfig(
             enabled=bool(values.get("sync_enabled", False)),
             folder=str(values.get("sync_folder", "")),
@@ -954,12 +1048,17 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             QMessageBox.warning(self, "Autostart", f"Could not update Windows startup entry:\n{exc}")
         self.activity_monitor.set_idle_timeout(int(values["default_idle_timeout"]) * 60)
+        self._apply_idle_settings()
         self._apply_saved_theme()
         self._write_paths_manifest()
         self._tick()
 
-    def _show_project_editor(self) -> None:
-        ProjectEditorDialog(self.repository, self).exec()
+    def _show_project_editor(self, project_code: str | None = None) -> None:
+        ProjectEditorDialog(
+            self.repository,
+            self,
+            initial_project_code=project_code,
+        ).exec()
         self._refresh_history()
 
     def _create_new_project(self) -> None:
@@ -1005,38 +1104,31 @@ class MainWindow(QMainWindow):
         if dialog.exec() == dialog.DialogCode.Accepted:
             self.clients_tab.refresh()
 
+    def _report_data_builder(self) -> ReportDataBuilder:
+        return ReportDataBuilder(
+            repository=self.repository,
+            session_aggregator=self.session_aggregator,
+            billing_service=self.billing_service,
+            log_service=self.log_service,
+            log_paths=self._active_log_paths(),
+            assigned_files=self.file_project_overrides,
+        )
+
     def _generate_client_statement(self, client_id: int) -> None:
-        client = self.repository.get_client(client_id)
-        if client is None:
-            QMessageBox.warning(self, "Client missing", "The selected client no longer exists.")
-            return
-        projects = self.repository.list_projects(client_id=client_id, active_only=False)
-        if not projects:
-            QMessageBox.information(self, "No projects", "No projects are assigned to this client.")
-            return
-        by_project = {project.project_code: project for project in projects}
-        line_items: list[dict[str, object]] = []
-        for session in self.repository.list_sessions(include_open=True, limit=15000):
-            project = by_project.get(session.project_id)
-            if project is None:
-                continue
-            line_items.append(
-                {
-                    "description": f"{project.project_code} - {os.path.basename(session.file_path)}",
-                    "hours": session.active_duration.total_seconds() / 3600.0,
-                    "rate": session.hourly_rate,
-                    "amount": session.billable_amount,
-                }
-            )
-        if not line_items:
-            QMessageBox.information(self, "No data", "No session entries found for this client.")
-            return
-        output_path = self.report_service.create_client_statement(client.name, line_items)
-        QMessageBox.information(self, "Statement generated", f"Saved:\n{output_path}")
-        QDesktopServices.openUrl(QUrl.fromLocalFile(output_path))
+        self._open_report_dialog(report_type="client", client_id=client_id)
 
     def _open_log_library_dialog(self) -> None:
-        LogLibraryDialog(self.repository, self).exec()
+        paths, description = self.log_service.resolve_sources(
+            vw_exe_path=self.process_monitor.vectorworks_path,
+            manual_log_path=self.vw_log_path or None,
+            merge_other_years=self.vw_log_merge_years,
+        )
+        LogLibraryDialog(
+            self.repository,
+            linked_log_paths=paths,
+            linked_log_description=description,
+            parent=self,
+        ).exec()
         self.log_cache.clear()
         self._tick()
 
@@ -1048,8 +1140,25 @@ class MainWindow(QMainWindow):
     def _open_backup_restore_dialog(self) -> None:
         BackupRestoreDialog(self.backup_service, self).exec()
 
-    def _open_report_dialog(self) -> None:
-        ReportDialog(self.repository, self.report_service, self).exec()
+    def _open_report_dialog(
+        self,
+        report_type: str = "master",
+        project_code: str = "",
+        client_id: int = 0,
+    ) -> None:
+        ReportDialog(
+            repository=self.repository,
+            report_service=self.report_service,
+            billing_service=self.billing_service,
+            session_aggregator=self.session_aggregator,
+            log_service=self.log_service,
+            log_paths=self._active_log_paths(),
+            assigned_files=self.file_project_overrides,
+            initial_report_type=report_type,
+            initial_project_code=project_code,
+            initial_client_id=client_id,
+            parent=self,
+        ).exec()
 
     def _show_bug_report_dialog(self) -> None:
         BugReportDialog(self).exec()
@@ -1081,25 +1190,7 @@ class MainWindow(QMainWindow):
         if not project_code:
             QMessageBox.warning(self, "Selection error", "Unable to resolve project code.")
             return
-        self._generate_project_report(project_code)
-
-    def _generate_project_report(self, project_code: str) -> None:
-        rows = []
-        for session in self.repository.list_sessions(project_id=project_code, include_open=True, limit=15000):
-            rows.append(
-                {
-                    "date": session.start_time.strftime("%Y-%m-%d"),
-                    "file": self._session_file_label(session),
-                    "hours": session.active_duration.total_seconds() / 3600.0,
-                    "rate": session.hourly_rate,
-                    "amount": session.billable_amount,
-                }
-            )
-        if not rows:
-            QMessageBox.information(self, "No data", f"No rows available for project '{project_code}'.")
-            return
-        output = self.report_service.create_project_pdf(project_code, rows)
-        QMessageBox.information(self, "Report created", f"Saved report to:\n{output}")
+        self._open_report_dialog(report_type="project", project_code=project_code)
 
     def _open_session_explorer_for_file(self, file_path: str) -> None:
         if not file_path:
@@ -1122,6 +1213,8 @@ class MainWindow(QMainWindow):
             target=file_path,
             project_id=project_code,
             reload_callback=reload,
+            report_service=self.report_service,
+            data_builder=self._report_data_builder(),
             parent=self,
         )
         dialog.exec()
@@ -1147,6 +1240,8 @@ class MainWindow(QMainWindow):
             target=project_code,
             project_id=project_code,
             reload_callback=reload,
+            report_service=self.report_service,
+            data_builder=self._report_data_builder(),
             parent=self,
         )
         dialog.exec()
@@ -1199,25 +1294,12 @@ class MainWindow(QMainWindow):
         menu.addAction("New Project...", self._create_new_project)
         menu.addSeparator()
         menu.addAction("View Sessions...", lambda: self._open_session_explorer_for_project(project_code))
-        menu.addAction("Generate Project Report", lambda: self._generate_project_report(project_code))
-        menu.addAction("Project Editor...", self._show_project_editor)
+        menu.addAction("Generate Project Report", lambda: self._open_report_dialog(report_type="project", project_code=project_code))
+        menu.addAction(
+            "Project Editor...",
+            lambda: self._show_project_editor(project_code),
+        )
         menu.exec(self.project_summary_table.viewport().mapToGlobal(pos))
-
-    def _export_master_report(self) -> None:
-        rows = [
-            {
-                "project": row["project"],
-                "hours": float(row["past_hours"]) + float(row["live_hours"]),
-                "amount": float(row["earned"]),
-                "trust": 1.0,
-            }
-            for row in self._last_rows
-        ]
-        if not rows:
-            QMessageBox.information(self, "No data", "No rows available for export.")
-            return
-        output = self.report_service.create_master_pdf(rows)
-        QMessageBox.information(self, "Report created", f"Saved report to:\n{output}")
 
     def _restore_window_geometry(self) -> None:
         saved = self.settings.value("mainwindow_geometry")

@@ -102,6 +102,26 @@ class ProcessMonitor:
             
         return None
         
+    def suggested_exe_browse_directory(self) -> str:
+        """Return the best starting folder for locating Vectorworks.exe."""
+        if not self._known_paths:
+            self.find_vectorworks_installations()
+
+        if self._known_paths:
+            latest_version = max(self._known_paths.keys())
+            return os.path.dirname(self._known_paths[latest_version])
+
+        program_files = [
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        ]
+        for program_dir in program_files:
+            for relative in ("Vectorworks", os.path.join("Nemetschek", "Vectorworks")):
+                candidate = os.path.join(program_dir, relative)
+                if os.path.isdir(candidate):
+                    return candidate
+        return program_files[0]
+        
     def get_active_window(self) -> Optional[WindowInfo]:
         """Get the currently active Vectorworks window."""
         foreground_hwnd = win32gui.GetForegroundWindow()

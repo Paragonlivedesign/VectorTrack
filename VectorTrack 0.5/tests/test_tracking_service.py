@@ -23,7 +23,7 @@ class FakeActivityMonitor:
 
 
 class FakeProcessMonitor:
-    def __init__(self, file_path: str = "I:/jobs/alpha.vwx"):
+    def __init__(self, file_path: str = "I:/jobs/alpha.vwx", *, foreground: bool = True):
         self.window = WindowInfo(
             hwnd=1,
             title="Alpha.vwx - Vectorworks",
@@ -32,12 +32,15 @@ class FakeProcessMonitor:
             is_visible=True,
             is_active=True,
         )
+        self._foreground = foreground
 
     def refresh(self):
         return [self.window]
 
     def get_active_window(self):
-        return self.window
+        if self._foreground:
+            return self.window
+        return None
 
 
 class FakeRepository:
@@ -96,3 +99,83 @@ def test_meeting_mode_auto_expires_after_30_minutes():
     assert svc.meeting_topic is None
     assert svc.current_state is None
     assert repo.ended
+
+
+def test_idle_pause_disabled_allows_tracking_while_inactive():
+    process = FakeProcessMonitor()
+    activity = FakeActivityMonitor(active=False)
+    repo = FakeRepository()
+    svc = TrackingService(process, activity, repo, autosave_seconds=1)
+    svc.set_idle_pause_enabled(False)
+
+    svc.start()
+    now = datetime.now()
+    svc.tick(now=now)
+    svc.tick(now=now + timedelta(seconds=8))
+
+    assert svc.current_state is not None
+    assert svc.current_state.tracked_seconds >= 8
+
+
+def test_vw_foreground_bypass_allows_tracking_while_inactive():
+    process = FakeProcessMonitor()
+    activity = FakeActivityMonitor(active=False)
+    repo = FakeRepository()
+    svc = TrackingService(process, activity, repo, autosave_seconds=1)
+    svc.set_idle_bypass_mode("vw_foreground")
+
+    svc.start()
+    now = datetime.now()
+    svc.tick(now=now)
+    svc.tick(now=now + timedelta(seconds=6))
+
+    assert svc.current_state.tracked_seconds >= 6
+
+
+def test_vw_file_open_bypass_tracks_background_file_while_idle():
+    process = FakeProcessMonitor(foreground=True)
+    activity = FakeActivityMonitor(active=False)
+    repo = FakeRepository()
+    svc = TrackingService(process, activity, repo, autosave_seconds=1)
+    svc.set_idle_bypass_mode("vw_file_open")
+
+    svc.start()
+    now = datetime.now()
+    svc.tick(now=now)
+    process._foreground = False
+    svc.tick(now=now + timedelta(seconds=7))
+
+    assert svc.current_state is not None
+    assert svc.current_state.tracked_seconds >= 7
+
+
+def test_log_open_bypass_uses_checker():
+    process = FakeProcessMonitor()
+    activity = FakeActivityMonitor(active=False)
+    repo = FakeRepository()
+    svc = TrackingService(process, activity, repo, autosave_seconds=1)
+    svc.set_idle_bypass_mode("log_open")
+    svc.log_open_checker = lambda path: path.endswith("alpha.vwx")
+
+    svc.start()
+    now = datetime.now()
+    svc.tick(now=now)
+    svc.tick(now=now + timedelta(seconds=5))
+
+    assert svc.current_state.tracked_seconds >= 5
+
+
+def test_manual_pause_blocks_tracking_even_when_idle_disabled():
+    process = FakeProcessMonitor()
+    activity = FakeActivityMonitor(active=False)
+    repo = FakeRepository()
+    svc = TrackingService(process, activity, repo, autosave_seconds=1)
+    svc.set_idle_pause_enabled(False)
+    svc.set_paused(True)
+
+    svc.start()
+    now = datetime.now()
+    svc.tick(now=now)
+    svc.tick(now=now + timedelta(seconds=10))
+
+    assert svc.current_state.tracked_seconds == 0

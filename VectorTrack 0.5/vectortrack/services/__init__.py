@@ -7,6 +7,7 @@ from .import_export import ImportExportService, ImportPreview
 from .log_service import LogService, LogSummary
 from .hotkey_service import HotkeyService
 from .notification_service import NotificationService
+from .report_data import ReportDataBuilder, ReportDataSet, ReportFilter, ReportRow
 from .report_service import ReportService
 
 try:
@@ -28,6 +29,10 @@ __all__ = [
     "LogService",
     "LogSummary",
     "NotificationService",
+    "ReportDataBuilder",
+    "ReportDataSet",
+    "ReportFilter",
+    "ReportRow",
     "ReportService",
     "TrackingService",
     "TrackingState",

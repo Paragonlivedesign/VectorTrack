@@ -7,7 +7,7 @@ import platform
 import sqlite3
 import sys
 
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QSettings, QTimer, Qt
 from PyQt6.QtWidgets import QApplication
 from loguru import logger
 
@@ -57,6 +57,22 @@ def _configure_logging() -> None:
     )
 
 
+def idle_timeout_seconds_from_settings() -> int:
+    """Resolve idle timeout seconds from test override or saved QSettings."""
+    app = QApplication.instance()
+    test_override = app.property("vectortrack_idle_seconds") if app is not None else None
+    if test_override:
+        return int(test_override)
+    minutes = int(
+        QSettings("Paragon", "VectorTrack").value(
+            "default_idle_timeout",
+            config.DEFAULT_IDLE_MINUTES,
+            type=int,
+        )
+    )
+    return minutes * 60
+
+
 def _init_services() -> MainWindow:
     data_dir = config.resolve_data_dir()
     db_file = data_dir / config.DEFAULT_DB_FILENAME
@@ -69,11 +85,7 @@ def _init_services() -> MainWindow:
 
     repository = Repository(database_path=db_file, legacy_database_path=legacy_file)
     process_monitor = ProcessMonitor()
-    idle_seconds = int(
-        QApplication.instance().property("vectortrack_idle_seconds")
-        or (config.DEFAULT_IDLE_MINUTES * 60)
-    )
-    activity_monitor = ActivityMonitor(idle_timeout_seconds=idle_seconds)
+    activity_monitor = ActivityMonitor(idle_timeout_seconds=idle_timeout_seconds_from_settings())
     tracking_service = TrackingService(
         process_monitor=process_monitor,
         activity_monitor=activity_monitor,

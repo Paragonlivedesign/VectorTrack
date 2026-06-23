@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from PyQt6.QtCore import QSettings, Qt, QTimer, QUrl
+from PyQt6.QtCore import QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
@@ -29,7 +30,7 @@ from PyQt6.QtWidgets import (
 
 from vectortrack import config
 from vectortrack.activity_monitor import ActivityMonitor
-from vectortrack.config import ENFORCE_LICENSING
+from vectortrack.config import format_version
 from vectortrack.db.repository import Repository
 from vectortrack.models import BillableProject, Client, TimeSession
 from vectortrack.process_monitor import ProcessMonitor
@@ -78,6 +79,7 @@ from vectortrack.sync_folder import gather_sync_log_paths
 class MainWindow(QMainWindow):
     SUPPORT_EMAIL = "Info@paragonlivedesign.com"
     UNASSIGNED_PROJECT_LABEL = "— Unassigned —"
+    _invoke_requested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -138,9 +140,14 @@ class MainWindow(QMainWindow):
         self._idle_notified = False
         self._eod_notified_date: date | None = None
         self.notification_service = NotificationService(enabled=self.notifications_enabled)
+        hotkeys_enabled = self.global_hotkeys_enabled and os.environ.get("VECTORTRACK_TESTING") != "1"
+        self.activity_monitor.monitor_keyboard = not hotkeys_enabled
         self.hotkey_service = HotkeyService(
-            enabled=self.global_hotkeys_enabled and os.environ.get("VECTORTRACK_TESTING") != "1"
+            enabled=hotkeys_enabled,
+            dispatch=self._invoke_on_main_thread,
+            on_keyboard_activity=self.activity_monitor.bump_activity if hotkeys_enabled else None,
         )
+        self._invoke_requested.connect(self._invoke_callback)
 
         self.setWindowTitle("VectorTrack")
         self.setWindowIcon(app_icon(self))
@@ -354,8 +361,17 @@ class MainWindow(QMainWindow):
 
     def _build_statusbar(self) -> None:
         status = QStatusBar(self)
-        status.showMessage("Ready")
+        version_label = QLabel(format_version(include_product_name=False))
+        version_label.setObjectName("muted")
+        status.addWidget(version_label)
         self.setStatusBar(status)
+
+    def _invoke_callback(self, fn: object) -> None:
+        if callable(fn):
+            fn()
+
+    def _invoke_on_main_thread(self, fn: Callable[[], None]) -> None:
+        self._invoke_requested.emit(fn)
 
     def _apply_saved_theme(self) -> None:
         mode = "dark" if self.dark_mode_enabled else "light"
@@ -1345,5 +1361,3 @@ class MainWindow(QMainWindow):
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
         self._ensure_window_on_screen()
-        if not ENFORCE_LICENSING:
-            self.statusBar().showMessage("Licensing disabled (ENFORCE_LICENSING=False)")

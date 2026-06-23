@@ -135,6 +135,15 @@ def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
     config.set_portable_mode(args.portable)
     _configure_logging()
+
+    def _log_unhandled_exception(exc_type, exc, tb) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc, tb)
+            return
+        logger.opt(exception=(exc_type, exc, tb)).error("Uncaught exception")
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = _log_unhandled_exception
     logger.info(f"Starting VectorTrack v{__version__}")
     logger.info(f"Python {platform.python_version()} on {platform.system()} {platform.version()}")
     logger.info(f"Data directory: {config.resolve_data_dir()}")

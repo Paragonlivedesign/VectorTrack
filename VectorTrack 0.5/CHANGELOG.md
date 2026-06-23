@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.2-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Stability** — hotkey handlers run on the main UI thread; single keyboard listener when hotkeys are enabled (fixes intermittent crashes)
+- **Status bar** — version shown bottom-left instead of licensing debug text
+- Uncaught Python exceptions logged to `vectortrack.log`
+- Installer artifact: `VectorTrack-0.5.2-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.2 beta**
+
+---
+
 ## [0.5.1-beta] — 2026-06
 
 ### VectorTrack (desktop)

@@ -1,13 +1,13 @@
 [Setup]
 AppId={{2EA49297-639A-41B2-AE60-0F6A31C08A34}
 AppName=VectorTrack
-AppVersion=0.5.1
+AppVersion=0.5.2
 AppPublisher=Paragon Live Design
 AppPublisherURL=https://paragonlivedesign.com
 DefaultDirName={autopf}\Paragon Live Design\VectorTrack
 DefaultGroupName=Paragon Live Design\VectorTrack
 OutputDir=dist\installer
-OutputBaseFilename=VectorTrack-0.5.1-Setup
+OutputBaseFilename=VectorTrack-0.5.2-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

@@ -10,8 +10,9 @@ from loguru import logger
 import os
 
 class ActivityMonitor:
-    def __init__(self, idle_timeout_seconds: int = 300):
+    def __init__(self, idle_timeout_seconds: int = 300, monitor_keyboard: bool = True):
         self.idle_timeout = timedelta(seconds=idle_timeout_seconds)
+        self.monitor_keyboard = monitor_keyboard
         self.last_activity = datetime.now()
         self.is_monitoring = False
         self._mouse_listener: Optional[mouse.Listener] = None
@@ -44,13 +45,13 @@ class ActivityMonitor:
                     on_click=self._on_activity,
                     on_scroll=self._on_activity
                 )
-                self._keyboard_listener = keyboard.Listener(
-                    on_press=self._on_activity,
-                    on_release=self._on_activity
-                )
-
                 self._mouse_listener.start()
-                self._keyboard_listener.start()
+                if self.monitor_keyboard:
+                    self._keyboard_listener = keyboard.Listener(
+                        on_press=self._on_activity,
+                        on_release=self._on_activity
+                    )
+                    self._keyboard_listener.start()
             
             # Start the idle checker thread
             self._check_thread = threading.Thread(target=self._check_idle_loop, daemon=True)
@@ -87,6 +88,10 @@ class ActivityMonitor:
         
         logger.info("Activity monitoring stopped")
         
+    def bump_activity(self) -> None:
+        """Record keyboard activity from an external listener (thread-safe)."""
+        self._on_activity()
+
     def _on_activity(self, *args):
         """Called when any input activity is detected."""
         with self._lock:

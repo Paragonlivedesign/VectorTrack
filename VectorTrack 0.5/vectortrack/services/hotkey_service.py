@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
 from pynput import keyboard
 
 
 HotkeyCallback = Callable[[], None]
+DispatchCallback = Callable[[HotkeyCallback], None]
 
 
 class HotkeyService:
@@ -23,8 +24,16 @@ class HotkeyService:
     - Ctrl+Shift+H: HUD toggle
     """
 
-    def __init__(self, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        enabled: bool = True,
+        *,
+        dispatch: Optional[DispatchCallback] = None,
+        on_keyboard_activity: Optional[Callable[[], None]] = None,
+    ) -> None:
         self.enabled = enabled
+        self._dispatch = dispatch or (lambda callback: callback())
+        self._on_keyboard_activity = on_keyboard_activity
         self._pressed: set[Any] = set()
         self._listener: keyboard.Listener | None = None
         self._callbacks: dict[str, HotkeyCallback] = {}
@@ -60,6 +69,11 @@ class HotkeyService:
         logger.info("Hotkey service stopped")
 
     def _on_press(self, key: Any) -> None:
+        if self._on_keyboard_activity is not None:
+            try:
+                self._on_keyboard_activity()
+            except Exception as exc:
+                logger.debug(f"Keyboard activity callback failed: {exc}")
         if not self.enabled:
             return
         self._pressed.add(key)
@@ -73,12 +87,17 @@ class HotkeyService:
         if not callback:
             return
         try:
-            callback()
+            self._dispatch(callback)
             logger.debug(f"Hotkey triggered: Ctrl+Shift+{letter.upper()}")
         except Exception as exc:
             logger.error(f"Hotkey callback failed for {letter}: {exc}")
 
     def _on_release(self, key: Any) -> None:
+        if self._on_keyboard_activity is not None:
+            try:
+                self._on_keyboard_activity()
+            except Exception as exc:
+                logger.debug(f"Keyboard activity callback failed: {exc}")
         self._pressed.discard(key)
 
     def _ctrl_shift_down(self) -> bool:

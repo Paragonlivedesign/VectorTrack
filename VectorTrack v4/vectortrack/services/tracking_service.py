@@ -175,9 +175,9 @@ class TrackingService:
 
     @staticmethod
     def _project_id_for(file_path: str) -> str:
-        base = os.path.basename(file_path)
-        stem, _ext = os.path.splitext(base)
-        return stem or file_path
+        if file_path.startswith("__meeting__/"):
+            return os.path.basename(file_path) or "Meeting"
+        return ""
 
     @staticmethod
     def _is_untitled(file_path: str) -> bool:

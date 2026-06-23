@@ -4,12 +4,93 @@ VectorTrackScript v4 configuration helpers (paths.json + project metadata).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import socket
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional
 
 PLUGIN_FOLDER = "VectorTrackScript v4"
 PATHS_FILENAME = "paths.json"
+
+
+@dataclass(frozen=True)
+class SyncConfig:
+    enabled: bool = False
+    folder: str = ""
+    machine_id: str = ""
+    machine_label: str = ""
+    sync_on_refresh: bool = True
+
+
+def default_machine_id() -> str:
+    hostname = socket.gethostname() or "unknown"
+    return hashlib.sha256(hostname.encode("utf-8")).hexdigest()[:16]
+
+
+def load_sync_config(vw_year: int, plugin_folder: str = PLUGIN_FOLDER) -> SyncConfig:
+    payload = load_paths_json(vw_year, plugin_folder)
+    raw = payload.get("sync")
+    if not isinstance(raw, dict):
+        return SyncConfig()
+
+    enabled = bool(raw.get("enabled", False))
+    folder = raw.get("folder")
+    machine_id = raw.get("machine_id")
+    machine_label = raw.get("machine_label")
+    sync_on_refresh = raw.get("sync_on_refresh", True)
+
+    resolved_folder = ""
+    if isinstance(folder, str) and folder.strip():
+        resolved_folder = os.path.expandvars(os.path.expanduser(folder.strip()))
+
+    resolved_machine_id = ""
+    if isinstance(machine_id, str) and machine_id.strip():
+        resolved_machine_id = machine_id.strip()
+    else:
+        resolved_machine_id = default_machine_id()
+
+    resolved_label = ""
+    if isinstance(machine_label, str):
+        resolved_label = machine_label.strip()
+
+    return SyncConfig(
+        enabled=enabled,
+        folder=resolved_folder,
+        machine_id=resolved_machine_id,
+        machine_label=resolved_label,
+        sync_on_refresh=bool(sync_on_refresh),
+    )
+
+
+def sync_config_to_dict(sync_config: SyncConfig) -> Dict[str, Any]:
+    return {
+        "enabled": sync_config.enabled,
+        "folder": sync_config.folder,
+        "machine_id": sync_config.machine_id or default_machine_id(),
+        "machine_label": sync_config.machine_label,
+        "sync_on_refresh": sync_config.sync_on_refresh,
+    }
+
+
+def save_sync_config(
+    vw_year: int,
+    sync_config: SyncConfig,
+    plugin_folder: str = PLUGIN_FOLDER,
+) -> str:
+    """Persist sync settings into paths.json. Returns the written file path."""
+    payload = load_paths_json(vw_year, plugin_folder)
+    if sync_config.enabled or sync_config.folder.strip():
+        payload["sync"] = sync_config_to_dict(sync_config)
+    else:
+        payload.pop("sync", None)
+
+    path = paths_json_path(vw_year, plugin_folder)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+    return path
 
 
 def _normalize_name(name: str) -> str:

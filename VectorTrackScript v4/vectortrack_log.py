@@ -124,6 +124,70 @@ def read_log_content(log_path: str) -> str:
     raise OSError(f'Unable to read log file: {log_path}')
 
 
+def _format_event_line(action: str, timestamp: datetime, project_name: str) -> str:
+    verb = 'Opened' if action == 'open' else 'Closed'
+    return f'{verb} "{project_name}" at {timestamp.strftime(TIMESTAMP_FMT)}'
+
+
+def merge_log_contents(sources: Sequence[str]) -> str:
+    """
+    Merge log text from multiple machines, deduplicating open/close events and save-as aliases.
+    """
+    if not sources:
+        return ''
+    if len(sources) == 1:
+        return sources[0]
+
+    seen_events: Set[Tuple[str, str, str]] = set()
+    events: List[Tuple[datetime, str, str]] = []
+    save_as_lines: List[str] = []
+    seen_save_as: Set[Tuple[str, Optional[str]]] = set()
+
+    for content in sources:
+        for line in content.splitlines():
+            save_alias = _parse_save_as_alias(line)
+            if save_alias:
+                key = (save_alias[0], save_alias[1])
+                if key not in seen_save_as:
+                    seen_save_as.add(key)
+                    save_as_lines.append(line.strip())
+                continue
+
+            event = _parse_log_event(line)
+            if not event:
+                continue
+
+            action, timestamp, log_name = event
+            dedupe_key = (
+                timestamp.isoformat(),
+                action,
+                _normalize_project_name(log_name),
+            )
+            if dedupe_key in seen_events:
+                continue
+            seen_events.add(dedupe_key)
+            events.append((timestamp, action, log_name))
+
+    events.sort(key=lambda item: item[0])
+    merged_lines = list(save_as_lines)
+    merged_lines.extend(
+        _format_event_line(action, timestamp, log_name)
+        for timestamp, action, log_name in events
+    )
+    return '\n'.join(merged_lines)
+
+
+def parse_sessions_from_sources(
+    sources: Sequence[str],
+    project_name: str,
+    aliases: Optional[Sequence[str]] = None,
+    now: Optional[datetime] = None,
+) -> Tuple[List[SessionRecord], float]:
+    """Parse sessions from one or more log sources (local + synced snapshots)."""
+    merged = merge_log_contents(sources)
+    return parse_sessions(merged, project_name, aliases=aliases, now=now)
+
+
 def parse_sessions(
     content: str,
     project_name: str,

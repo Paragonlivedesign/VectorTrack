@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import QProgressBar, QTableWidget, QTableWidgetItem, QWidget
 
 
 class ProjectSummaryTable(QTableWidget):
+    view_sessions_requested = pyqtSignal(str)
+
     HEADERS = ["Project", "Rate", "Tracked", "Billable", "Budget", "Progress"]
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -19,6 +21,7 @@ class ProjectSummaryTable(QTableWidget):
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.horizontalHeader().setStretchLastSection(True)
+        self.cellDoubleClicked.connect(self._on_double_click)
 
     def set_rows(self, rows: Iterable[dict[str, object]]) -> None:
         self.setRowCount(0)
@@ -74,4 +77,9 @@ class ProjectSummaryTable(QTableWidget):
             item = self.item(row, col)
             if item is not None:
                 item.setBackground(brush)
+
+    def _on_double_click(self, row: int, _column: int) -> None:
+        project_code = self.project_code_for_row(row)
+        if project_code:
+            self.view_sessions_requested.emit(project_code)
 

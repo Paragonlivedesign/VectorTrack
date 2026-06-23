@@ -158,6 +158,12 @@ class LogService:
                 continue
             out.append(item)
             seen.add(normalized)
+            if not normalized.endswith(".vwx"):
+                with_ext = f"{item}.vwx" if not item.lower().endswith(".vwx") else item
+                ext_norm = AliasResolver.normalize_name(with_ext)
+                if ext_norm not in seen:
+                    out.append(with_ext)
+                    seen.add(ext_norm)
         return out
 
     @staticmethod

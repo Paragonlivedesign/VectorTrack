@@ -8,13 +8,17 @@ from typing import List
 
 import vs
 
-from vectortrack_config import aliases_from_paths, project_details_from_paths
+from vectortrack_config import aliases_from_paths, load_sync_config, project_details_from_paths
 from vectortrack_log import (
     build_summary_text,
     find_log_path,
+    merge_log_contents,
     parse_sessions,
+    parse_sessions_from_sources,
     read_log_content,
 )
+from vectortrack_sync import gather_log_sources_for_sync
+from vectortrack_sync_dialog import show_sync_settings
 from vectortrack_rates import (
     get_rate,
     plugin_data_dir_for_year,
@@ -43,6 +47,7 @@ kEditSummary = 12
 kBtnRefresh = 13
 kBtnCopy = 14
 kBtnAbout = 15
+kBtnSync = 16
 
 _dialog = None
 _state = {
@@ -55,6 +60,8 @@ _state = {
     'data_dir': '',
     'summary_text': '',
     'total_hours': 0.0,
+    'sync_config': None,
+    'sync_status_note': '',
 }
 
 
@@ -77,7 +84,13 @@ def _normalize_name(name: str) -> str:
     return os.path.basename((name or '').replace('\\', '/')).strip().lower()
 
 
-def _trust_note_for_data(content: str, aliases: List[str], sessions_count: int) -> str:
+def _trust_note_for_data(
+    content: str,
+    aliases: List[str],
+    sessions_count: int,
+    machine_count: int = 1,
+    sync_status_note: str = '',
+) -> str:
     score = 0.0
     if sessions_count > 0:
         score += 0.45
@@ -91,7 +104,13 @@ def _trust_note_for_data(content: str, aliases: List[str], sessions_count: int) 
         level = 'Medium'
     else:
         level = 'Low'
-    return f'{level} ({score:.2f})'
+
+    note = f'{level} ({score:.2f})'
+    if machine_count > 1:
+        note = f'{note} · {machine_count} machines'
+    if sync_status_note:
+        note = f'{note} · {sync_status_note}'
+    return note
 
 
 def _load_tracking_data(project_name: str, rate: float, client_name: str, budget_hours: float):
@@ -102,16 +121,46 @@ def _load_tracking_data(project_name: str, rate: float, client_name: str, budget
             'Check that logging is enabled in Vectorworks preferences.',
             0.0,
             'Low (0.00)',
+            '',
         )
-    try:
-        content = read_log_content(log_path)
-    except OSError as exc:
-        return f'Error reading log file:\n{exc}', 0.0, 'Low (0.00)'
 
-    sessions, total_hours = parse_sessions(content, project_name, aliases=_state.get('aliases', []))
-    trust_note = _trust_note_for_data(content, _state.get('aliases', []), len(sessions))
+    sync_config = _state.get('sync_config')
+    machine_count = 1
+    sync_status_note = ''
+
+    if sync_config and sync_config.enabled:
+        sources, machine_count, sync_status_note = gather_log_sources_for_sync(
+            log_path,
+            sync_config,
+            _state['vw_year'],
+        )
+        if not sources:
+            return f'Error reading log file.', 0.0, 'Low (0.00)', sync_status_note or ''
+        try:
+            content = merge_log_contents(sources)
+        except Exception:
+            content = sources[0] if sources else ''
+        sessions, total_hours = parse_sessions_from_sources(
+            sources,
+            project_name,
+            aliases=_state.get('aliases', []),
+        )
+    else:
+        try:
+            content = read_log_content(log_path)
+        except OSError as exc:
+            return f'Error reading log file:\n{exc}', 0.0, 'Low (0.00)', ''
+        sessions, total_hours = parse_sessions(content, project_name, aliases=_state.get('aliases', []))
+
+    trust_note = _trust_note_for_data(
+        content,
+        _state.get('aliases', []),
+        len(sessions),
+        machine_count=machine_count,
+        sync_status_note=sync_status_note or '',
+    )
     if not sessions:
-        return f'No time logged for {project_name} yet.', 0.0, trust_note
+        return f'No time logged for {project_name} yet.', 0.0, trust_note, sync_status_note or ''
 
     summary = build_summary_text(
         project_name,
@@ -122,7 +171,7 @@ def _load_tracking_data(project_name: str, rate: float, client_name: str, budget
         budget_hours=budget_hours if budget_hours > 0 else None,
         trust_note=trust_note,
     )
-    return summary, total_hours, trust_note
+    return summary, total_hours, trust_note, sync_status_note or ''
 
 
 def _refresh_summary():
@@ -143,10 +192,13 @@ def _refresh_summary():
     except Exception:
         budget_hours = float(_state.get('budget_hours', 0.0))
 
-    summary, total_hours, trust_note = _load_tracking_data(project, rate, client_name, budget_hours)
+    summary, total_hours, trust_note, sync_status_note = _load_tracking_data(
+        project, rate, client_name, budget_hours
+    )
     _state['summary_text'] = summary
     _state['total_hours'] = total_hours
     _state['trust_note'] = trust_note
+    _state['sync_status_note'] = sync_status_note
     _state['client_name'] = client_name
     _state['budget_hours'] = budget_hours
     vs.SetItemText(_dialog, kEditSummary, summary)
@@ -191,6 +243,13 @@ def _show_about():
     vs.AlrtDialog(about_text)
 
 
+def _show_sync_settings():
+    updated = show_sync_settings(_state['vw_year'])
+    if updated is not None:
+        _state['sync_config'] = updated
+        _refresh_summary()
+
+
 def _create_dialog():
     global _dialog
     _dialog = vs.CreateLayout(
@@ -214,6 +273,7 @@ def _create_dialog():
     vs.CreateEditText(_dialog, kEditSummary, _state['summary_text'], 64)
     vs.CreatePushButton(_dialog, kBtnRefresh, 'Refresh')
     vs.CreatePushButton(_dialog, kBtnCopy, 'Copy Summary')
+    vs.CreatePushButton(_dialog, kBtnSync, 'Sync...')
     vs.CreatePushButton(_dialog, kBtnAbout, 'About...')
 
     vs.SetFirstLayoutItem(_dialog, kLabelProject)
@@ -230,7 +290,8 @@ def _create_dialog():
     vs.SetBelowItem(_dialog, kLabelSummary, kEditSummary, 0, 0)
     vs.SetBelowItem(_dialog, kEditSummary, kBtnRefresh, 0, 8)
     vs.SetRightItem(_dialog, kBtnRefresh, kBtnCopy, 8, 0)
-    vs.SetRightItem(_dialog, kBtnCopy, kBtnAbout, 8, 0)
+    vs.SetRightItem(_dialog, kBtnCopy, kBtnSync, 8, 0)
+    vs.SetRightItem(_dialog, kBtnSync, kBtnAbout, 8, 0)
 
     return _dialog
 
@@ -242,6 +303,8 @@ def _dialog_handler(item, _data):
         _copy_summary()
     elif item == kBtnAbout:
         _show_about()
+    elif item == kBtnSync:
+        _show_sync_settings()
     elif item == setup:
         vs.SetItemText(_dialog, kEditProject, _state['project_name'])
         vs.SetItemText(_dialog, kEditClient, _state.get('client_name', ''))
@@ -268,6 +331,7 @@ def run():
     global _dialog
     _state['vw_year'] = _get_vw_year()
     _state['data_dir'] = plugin_data_dir_for_year(_state['vw_year'])
+    _state['sync_config'] = load_sync_config(_state['vw_year'])
     _state['project_name'] = _get_project_name()
     alias_map = aliases_from_paths(_state['vw_year'])
     normalized = _normalize_name(_state['project_name'])

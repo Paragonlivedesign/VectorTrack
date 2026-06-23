@@ -66,6 +66,12 @@ def test_get_total_log_hours_merges_years(tmp_path, monkeypatch):
     assert len(paths) == 2
 
 
+def test_parse_sessions_matches_project_stem_without_extension():
+    sessions, total = parse_sessions(CLOSED_LOG, "MyProject")
+    assert len(sessions) == 2
+    assert total == pytest.approx(4.0, abs=0.01)
+
+
 def test_parse_sessions_native_vectorworks_format():
     sessions, total = parse_sessions(NATIVE_LOG, "PLD Start v2.vwx")
     assert len(sessions) == 1

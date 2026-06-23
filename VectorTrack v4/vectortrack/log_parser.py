@@ -45,7 +45,10 @@ class SessionRecord:
 
 
 def _normalize_project_name(name: str) -> str:
-    return os.path.basename(name.replace('\\', '/')).strip().lower()
+    basename = os.path.basename(name.replace('\\', '/')).strip().lower()
+    if basename.endswith('.vwx'):
+        basename = basename[:-4]
+    return basename
 
 
 def _names_match(log_name: str, project_name: str) -> bool:
@@ -276,6 +279,11 @@ def parse_sessions_for_aliases(
             if old_norm and old_norm in tracked_norms and new_norm not in tracked_norms:
                 tracked_norms.add(new_norm)
                 canonical_for_norm[new_norm] = canonical_for_norm[old_norm]
+            if old_norm and old_norm in open_start_by_norm:
+                open_start_by_norm[new_norm] = open_start_by_norm.pop(old_norm)
+                tracked_norms.add(new_norm)
+                if new_norm not in canonical_for_norm:
+                    canonical_for_norm[new_norm] = canonical_for_norm.get(old_norm, new_name)
 
         event = _parse_log_event(line)
         if not event:

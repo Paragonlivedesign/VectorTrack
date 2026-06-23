@@ -7,7 +7,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 LEGACY_SOURCE = "legacy-v1"
 
 
@@ -146,6 +146,36 @@ def _migrate_v3_lock_fields(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v4_session_overrides(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS session_exclusions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_alias TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT,
+            machine_id TEXT,
+            log_key TEXT,
+            reason TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS session_adjustments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            hourly_rate REAL NOT NULL,
+            machine_id TEXT,
+            notes TEXT,
+            replaces_log_key TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+
+
 def _legacy_sessions_already_migrated(conn: sqlite3.Connection) -> bool:
     if not _table_exists(conn, "app_settings"):
         return False
@@ -267,6 +297,11 @@ def migrate(conn: sqlite3.Connection, legacy_db_file: Path | None = None) -> Non
     if current_version < 3:
         _migrate_v3_lock_fields(conn)
         conn.execute("PRAGMA user_version = 3")
+        current_version = 3
+
+    if current_version < 4:
+        _migrate_v4_session_overrides(conn)
+        conn.execute("PRAGMA user_version = 4")
 
 
 def init_database(db_file: Path, legacy_db_file: Path | None = None) -> None:

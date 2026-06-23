@@ -14,12 +14,6 @@ Semver is **0.4.x** while in beta (not 4.0.0). Source folders: `VectorTrack v4/`
 - Added main-window smoke tests for CI
 - PyInstaller build with app icon and explicit service/database hidden imports
 
-### VectorTrackScript (plug-in)
-
-- Added client, budget, and trust-note fields in the summary dialog
-- Added alias-aware parsing for renamed / save-as files
-- Added copy-to-clipboard and cross-machine log sync UI
-
 ### Shared / infrastructure
 
 - Log snapshot format for multi-machine merge under `{sync_folder}/machines/{machine_id}/{year}/`
@@ -50,4 +44,4 @@ Semver is **0.4.x** while in beta (not 4.0.0). Source folders: `VectorTrack v4/`
 
 ## Earlier versions
 
-Pre-3.0 history is archived in `VectorTrack v0 PY/` and legacy folders in this repository.
+Pre-3.0 history (alpha through 1.x) is archived in `VectorTrack v0 PY/` and legacy folders in the development repository.

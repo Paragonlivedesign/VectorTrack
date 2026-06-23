@@ -7,9 +7,11 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -18,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from vectortrack.config import DEFAULT_HOURLY_RATE, DEFAULT_IDLE_MINUTES, ENFORCE_LICENSING
 from vectortrack.services.autostart import is_enabled as autostart_is_enabled
+from vectortrack.sync_config import default_machine_id
 
 
 class SettingsDialog(QDialog):
@@ -25,7 +28,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.settings = settings
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
@@ -55,6 +58,31 @@ class SettingsDialog(QDialog):
         self.merge_years = QCheckBox("Merge other years")
         self.merge_years.setChecked(settings.value("vw_log_merge_years", True, type=bool))
         form.addRow("", self.merge_years)
+
+        form.addRow("", QLabel("Cross-machine log sync"))
+        self.sync_enabled = QCheckBox("Enable cross-machine log sync")
+        self.sync_enabled.setChecked(settings.value("sync_enabled", False, type=bool))
+        form.addRow("", self.sync_enabled)
+
+        sync_row = QWidget()
+        sync_row_layout = QHBoxLayout(sync_row)
+        sync_row_layout.setContentsMargins(0, 0, 0, 0)
+        self.sync_folder = QLineEdit(settings.value("sync_folder", "", type=str))
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self._browse_sync_folder)
+        sync_row_layout.addWidget(self.sync_folder)
+        sync_row_layout.addWidget(browse_btn)
+        form.addRow("Sync folder", sync_row)
+
+        self.machine_id = QLineEdit(settings.value("sync_machine_id", default_machine_id(), type=str))
+        form.addRow("Machine ID", self.machine_id)
+
+        self.machine_label = QLineEdit(settings.value("sync_machine_label", "", type=str))
+        form.addRow("Machine label", self.machine_label)
+
+        self.sync_on_refresh = QCheckBox("Sync when refreshing log data")
+        self.sync_on_refresh.setChecked(settings.value("sync_on_refresh", True, type=bool))
+        form.addRow("", self.sync_on_refresh)
 
         self.minimize_to_tray = QCheckBox("Minimize to tray on close")
         self.minimize_to_tray.setChecked(settings.value("minimize_to_tray", True, type=bool))
@@ -99,6 +127,16 @@ class SettingsDialog(QDialog):
         buttons.addWidget(cancel_btn)
         layout.addLayout(buttons)
 
+    def _browse_sync_folder(self) -> None:
+        start = self.sync_folder.text().strip()
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select cloud sync folder (Google Drive, Dropbox, OneDrive, etc.)",
+            start,
+        )
+        if folder:
+            self.sync_folder.setText(folder)
+
     def values(self) -> dict[str, object]:
         return {
             "default_hourly_rate": self.default_rate.value(),
@@ -107,6 +145,11 @@ class SettingsDialog(QDialog):
             "dark_mode_enabled": self.dark_mode.isChecked(),
             "import_vw_log_history": self.import_log_history.isChecked(),
             "vw_log_merge_years": self.merge_years.isChecked(),
+            "sync_enabled": self.sync_enabled.isChecked(),
+            "sync_folder": self.sync_folder.text().strip(),
+            "sync_machine_id": self.machine_id.text().strip() or default_machine_id(),
+            "sync_machine_label": self.machine_label.text().strip(),
+            "sync_on_refresh": self.sync_on_refresh.isChecked(),
             "minimize_to_tray": self.minimize_to_tray.isChecked(),
             "notifications_enabled": self.notifications_enabled.isChecked(),
             "global_hotkeys_enabled": self.global_hotkeys.isChecked(),
@@ -115,4 +158,3 @@ class SettingsDialog(QDialog):
             "portable_mode": self.portable_mode.isChecked(),
             "autostart_enabled": self.autostart.isChecked(),
         }
-

@@ -20,6 +20,9 @@ $includeFiles = @(
     "vectortrack_log.py",
     "vectortrack_rates.py",
     "vectortrack_dialog.py",
+    "vectortrack_config.py",
+    "vectortrack_sync.py",
+    "vectortrack_sync_dialog.py",
     "VSM_WRAPPER.py",
     "README.md"
 )

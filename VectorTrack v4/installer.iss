@@ -16,10 +16,6 @@ ArchitecturesInstallIn64BitMode=x64
 SetupIconFile=assets\vectortrack.ico
 UninstallDisplayIcon={app}\VectorTrack.exe
 
-#ifndef AppSource
-#define AppSource "dist\VectorTrack"
-#endif
-
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
@@ -27,7 +23,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-Source: "{#AppSource}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "dist\VectorTrack\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{group}\VectorTrack"; Filename: "{app}\VectorTrack.exe"; IconFilename: "{app}\VectorTrack.exe"

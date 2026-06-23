@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -12,9 +13,12 @@ from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QStatusBar,
     QTabWidget,
@@ -26,7 +30,7 @@ from vectortrack import config
 from vectortrack.activity_monitor import ActivityMonitor
 from vectortrack.config import ENFORCE_LICENSING
 from vectortrack.db.repository import Repository
-from vectortrack.models import TimeSession
+from vectortrack.models import BillableProject, Client, TimeSession
 from vectortrack.process_monitor import ProcessMonitor
 from vectortrack.services.backup_service import BackupService
 from vectortrack.services.billing_service import BillingContext, BillingService
@@ -57,12 +61,18 @@ from vectortrack.ui.dialogs.log_library_dialog import LogLibraryDialog
 from vectortrack.ui.dialogs.manual_entry_dialog import ManualEntryDialog
 from vectortrack.ui.dialogs.project_assign_dialog import ProjectAssignDialog
 from vectortrack.ui.dialogs.project_editor_dialog import ProjectEditorDialog
+from vectortrack.ui.dialogs.new_project_dialog import NewProjectDialog
 from vectortrack.ui.dialogs.report_dialog import ReportDialog
 from vectortrack.ui.dialogs.settings_dialog import SettingsDialog
+from vectortrack.services.session_aggregator import SessionAggregator
+from vectortrack.ui.dialogs.session_explorer_dialog import SessionExplorerDialog
+from vectortrack.sync_config import SyncConfig, default_machine_id, load_sync_config_from_paths_json, settings_keys_from_sync_config, sync_config_to_mapping
+from vectortrack.sync_folder import gather_sync_log_paths
 
 
 class MainWindow(QMainWindow):
     SUPPORT_EMAIL = "Info@paragonlivedesign.com"
+    UNASSIGNED_PROJECT_LABEL = "— Unassigned —"
 
     def __init__(
         self,
@@ -101,12 +111,15 @@ class MainWindow(QMainWindow):
         self.global_hotkeys_enabled = self.settings.value("global_hotkeys_enabled", True, type=bool)
         self.eod_notify_enabled = self.settings.value("eod_notify_enabled", True, type=bool)
         self.eod_notify_hour = int(self.settings.value("eod_notify_hour", 17, type=int))
+        self.sync_config = self._load_sync_config()
+        self.session_aggregator = SessionAggregator(self.repository)
         self.log_cache: dict[str, dict[str, float | datetime]] = {}
         self.file_project_overrides: dict[str, str] = self._load_project_overrides()
         self._last_log_sync = datetime.min
         self._last_rows: list[dict[str, object]] = []
         self._is_quitting = False
         self._known_open_files: set[str] = set()
+        self._session_file_order: list[str] = []
         self._budget_notified: dict[str, str] = {}
         self._delta_notified: dict[str, float] = {}
         self._idle_notified = False
@@ -141,7 +154,10 @@ class MainWindow(QMainWindow):
         self.update_timer.start(1000)
         self.history_browser.refresh_requested.connect(self._refresh_history)
         self.open_files_table.assign_project_requested.connect(self._assign_project)
+        self.open_files_table.assign_projects_requested.connect(self._assign_projects)
         self.open_files_table.manual_entry_requested.connect(self._open_manual_entry)
+        self.open_files_table.view_sessions_requested.connect(self._open_session_explorer_for_file)
+        self.project_summary_table.view_sessions_requested.connect(self._open_session_explorer_for_project)
         self.heatmap_widget.day_clicked.connect(self._jump_history_to_day)
         self.clients_tab.edit_client_requested.connect(self._open_client_editor)
         self.clients_tab.statement_requested.connect(self._generate_client_statement)
@@ -193,6 +209,13 @@ class MainWindow(QMainWindow):
         top_layout = QVBoxLayout(top_panel)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(8)
+        open_files_header = QHBoxLayout()
+        open_files_header.addWidget(QLabel("Open Files"))
+        open_files_header.addStretch()
+        self.assign_selected_projects_btn = QPushButton("Assign Selected to Project...")
+        self.assign_selected_projects_btn.clicked.connect(self._assign_selected_projects)
+        open_files_header.addWidget(self.assign_selected_projects_btn)
+        top_layout.addLayout(open_files_header)
         self.open_files_table = OpenFilesTable(top_panel)
         self.project_summary_table = ProjectSummaryTable(top_panel)
         self.open_files_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -313,17 +336,36 @@ class MainWindow(QMainWindow):
         self.minimize_to_tray = self.settings.value("minimize_to_tray", True, type=bool)
         self._apply_saved_theme()
 
+    def _load_sync_config(self) -> SyncConfig:
+        if self.settings.contains("sync_enabled"):
+            return SyncConfig(
+                enabled=self.settings.value("sync_enabled", False, type=bool),
+                folder=self.settings.value("sync_folder", "", type=str),
+                machine_id=self.settings.value("sync_machine_id", default_machine_id(), type=str),
+                machine_label=self.settings.value("sync_machine_label", "", type=str),
+                sync_on_refresh=self.settings.value("sync_on_refresh", True, type=bool),
+            )
+        return load_sync_config_from_paths_json(config.paths_json_path())
+
     def _write_paths_manifest(self) -> None:
         try:
             config.write_paths_json(
                 {
                     "vectorworks_path": self.settings.value("vectorworks_path", "", type=str),
                     "vw_log_path": self.vw_log_path,
+                    "sync": sync_config_to_mapping(self.sync_config),
                 }
             )
         except Exception:
             # Manifest writing is best-effort and should not interrupt UI startup.
             pass
+
+    def _current_vw_year(self) -> int:
+        exe = self.process_monitor.vectorworks_path or ""
+        match = re.search(r"Vectorworks[\s_]?(\d{4})", exe, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        return datetime.now().year
 
     def _auto_detect_vectorworks(self) -> None:
         saved = self.settings.value("vectorworks_path", "", type=str)
@@ -380,6 +422,12 @@ class MainWindow(QMainWindow):
             merge_other_years=self.vw_log_merge_years,
             extra_paths=extra_paths,
         )
+        if self.sync_config.enabled and paths:
+            paths, _machine_count = gather_sync_log_paths(
+                paths,
+                self.sync_config,
+                self._current_vw_year(),
+            )
         return paths
 
     def _log_stats_for_file(self, file_path: str, project_name: str) -> tuple[float, float]:
@@ -401,7 +449,23 @@ class MainWindow(QMainWindow):
         }
         return summary.closed_hours, summary.open_hours
 
+    def _project_for_file(self, file_path: str, state=None) -> str:
+        override = self.file_project_overrides.get(file_path)
+        if override:
+            return override
+        if state is not None and state.project_id:
+            if self.repository.get_project_by_code(state.project_id):
+                return state.project_id
+        return ""
+
+    def _project_display(self, project_code: str) -> str:
+        if not project_code:
+            return self.UNASSIGNED_PROJECT_LABEL
+        return project_code
+
     def _rate_for_project(self, project_code: str) -> float:
+        if not project_code:
+            return self.default_rate
         project = self.repository.get_project_by_code(project_code)
         return float(project.hourly_rate) if project else self.default_rate
 
@@ -456,7 +520,9 @@ class MainWindow(QMainWindow):
                     self._delta_notified[file_path] = delta
 
         for row in rows:
-            project = str(row["project"])
+            project = str(row.get("project_code") or row.get("project") or "")
+            if not project or project == self.UNASSIGNED_PROJECT_LABEL:
+                continue
             budget = self._budget_for_project(project)
             if budget <= 0:
                 continue
@@ -491,55 +557,137 @@ class MainWindow(QMainWindow):
             self.notification_service.notify_eod(today_hours, today_amount)
             self._eod_notified_date = now.date()
 
+    def _update_session_files(self, open_paths: set[str], closed_paths: list[str]) -> None:
+        for file_path in closed_paths:
+            if file_path and file_path not in self._session_file_order:
+                self._session_file_order.append(file_path)
+        for file_path in open_paths:
+            if not file_path:
+                continue
+            if file_path not in self._session_file_order:
+                self._session_file_order.append(file_path)
+
+    def _ordered_session_paths(self, open_paths: set[str], active_path: str | None) -> list[str]:
+        ordered: list[str] = []
+        seen: set[str] = set()
+
+        def add_path(path: str | None) -> None:
+            if not path or path in seen:
+                return
+            seen.add(path)
+            ordered.append(path)
+
+        add_path(active_path)
+        for path in self._session_file_order:
+            if path in open_paths and path != active_path:
+                add_path(path)
+        for path in reversed(self._session_file_order):
+            if path not in open_paths:
+                add_path(path)
+        return ordered
+
+    def _row_for_file(
+        self,
+        file_path: str,
+        *,
+        row_kind: str,
+        is_open: bool,
+    ) -> dict[str, object]:
+        state = self.tracking_service.states_by_file.get(file_path)
+        project_code = self._project_for_file(file_path, state)
+        rate = self._rate_for_project(project_code)
+        live_hours = float(state.tracked_hours if state and is_open else 0.0)
+        closed_hours, open_hours = self._log_stats_for_file(file_path, Path(file_path).name)
+        delta_hours = (open_hours - live_hours) if is_open else 0.0
+        billing = self.billing_service.compute(
+            BillingContext(
+                rate=rate,
+                duration_hours=max(0.0, closed_hours + (live_hours if is_open else 0.0)),
+                started_at=(state.started_at if state and is_open else None),
+            )
+        )
+        if row_kind == "active":
+            status = "Active"
+            if self.tracking_service.is_paused and state is self.tracking_service.current_state:
+                status = "Active (Paused)"
+        elif is_open:
+            status = "Open"
+            if self.tracking_service.is_paused and state is self.tracking_service.current_state:
+                status = "Paused"
+        else:
+            status = "Recent"
+        is_tracking = self._is_live_tracking(state, row_kind)
+        return {
+            "file_path": file_path,
+            "file_name": os.path.basename(file_path),
+            "project": self._project_display(project_code),
+            "project_code": project_code,
+            "status": status,
+            "past_hours": closed_hours,
+            "live_hours": live_hours,
+            "delta_hours": delta_hours,
+            "rate": rate,
+            "earned": billing.total_due,
+            "row_kind": row_kind,
+            "is_tracking": is_tracking,
+        }
+
+    def _is_live_tracking(self, state, row_kind: str) -> bool:
+        if row_kind != "active" or state is None:
+            return False
+        if state is not self.tracking_service.current_state:
+            return False
+        if self.tracking_service.is_paused:
+            return False
+        if self.tracking_service.meeting_topic or state.meeting_mode:
+            return True
+        return self.activity_monitor.is_active()
+
     def _rows_from_tracking(self) -> list[dict[str, object]]:
         windows = self.process_monitor.refresh()
         open_paths = {window.file_path for window in windows if window.file_path}
+        closed_paths = self.process_monitor.get_closed_files()
+        self._update_session_files(open_paths, closed_paths)
+
+        active_path = self.process_monitor.get_foreground_file()
+        if not active_path and self.tracking_service.current_state:
+            active_path = self.tracking_service.current_state.file_path
+
         rows: list[dict[str, object]] = []
-        for file_path in sorted(open_paths):
-            state = self.tracking_service.states_by_file.get(file_path)
-            fallback_project = Path(file_path).stem
-            project_code = self.file_project_overrides.get(file_path) or (
-                state.project_id if state else fallback_project
-            )
-            rate = self._rate_for_project(project_code)
-            live_hours = float(state.tracked_hours if state else 0.0)
-            closed_hours, open_hours = self._log_stats_for_file(file_path, Path(file_path).name)
-            delta_hours = open_hours - live_hours
-            billing = self.billing_service.compute(
-                BillingContext(
-                    rate=rate,
-                    duration_hours=max(0.0, closed_hours + live_hours),
-                    started_at=(state.started_at if state else None),
+        for file_path in self._ordered_session_paths(open_paths, active_path):
+            is_open = file_path in open_paths
+            if file_path == active_path and is_open:
+                row_kind = "active"
+            elif is_open:
+                row_kind = "open"
+            else:
+                row_kind = "recent"
+            rows.append(
+                self._row_for_file(
+                    file_path,
+                    row_kind=row_kind,
+                    is_open=is_open,
                 )
             )
-            status = "Tracking"
-            if self.tracking_service.is_paused and state is self.tracking_service.current_state:
-                status = "Paused"
-            elif state is None:
-                status = "Open"
-            rows.append(
-                {
-                    "file_path": file_path,
-                    "file_name": os.path.basename(file_path),
-                    "project": project_code,
-                    "status": status,
-                    "past_hours": closed_hours,
-                    "live_hours": live_hours,
-                    "delta_hours": delta_hours,
-                    "rate": rate,
-                    "earned": billing.total_due,
-                }
-            )
         return rows
+
+    def _sync_project_overrides_to_tracking(self) -> None:
+        for file_path, project_code in self.file_project_overrides.items():
+            state = self.tracking_service.states_by_file.get(file_path)
+            if state is None or state.project_id == project_code:
+                continue
+            state.project_id = project_code
+            self.repository.update_session_duration(state, 0.0)
 
     def _tick(self) -> None:
         if not self.process_monitor.vectorworks_path:
             self.statusBar().showMessage("Vectorworks executable not set")
             return
         self.tracking_service.tick()
+        self._sync_project_overrides_to_tracking()
         rows = self._rows_from_tracking()
         self._last_rows = rows
-        self.open_files_table.set_rows(rows)
+        self.open_files_table.update_rows(rows)
         self._refresh_project_summary(rows)
         self._refresh_dash_metrics(rows)
         self._refresh_hud(rows)
@@ -551,7 +699,9 @@ class MainWindow(QMainWindow):
     def _refresh_project_summary(self, rows: list[dict[str, object]]) -> None:
         per_project: dict[str, dict[str, float]] = {}
         for row in rows:
-            project = str(row["project"])
+            project = str(row.get("project_code") or row.get("project") or "")
+            if not project or project == self.UNASSIGNED_PROJECT_LABEL:
+                continue
             agg = per_project.setdefault(
                 project,
                 {
@@ -589,11 +739,20 @@ class MainWindow(QMainWindow):
                 week_hours += hours
             if session.start_time.year == now.year and session.start_time.month == now.month:
                 month_hours += hours
+        active_row = next((row for row in rows if row.get("row_kind") == "active"), None)
+        active_project = None
+        if active_row:
+            active_project = str(active_row.get("project_code") or active_row.get("project") or "")
+        active_live = float(active_row["live_hours"]) if active_row else 0.0
+        active_tracking = bool(active_row.get("is_tracking")) if active_row else False
         self.dashboard_strip.set_metrics(
             today_hours=today_hours,
             week_hours=week_hours,
             month_hours=max(month_hours, total_hours),
             earned=total_earned,
+            active_project=active_project,
+            active_live_hours=active_live,
+            active_is_tracking=active_tracking,
         )
 
     def _refresh_hud(self, rows: list[dict[str, object]]) -> None:
@@ -603,7 +762,18 @@ class MainWindow(QMainWindow):
             return
         row = next((item for item in rows if item["file_path"] == current.file_path), None)
         earned = float(row["earned"]) if row else 0.0
-        self.hud.set_stats(os.path.basename(current.file_path), float(current.tracked_hours), earned)
+        row_kind = str(row.get("row_kind", "")) if row else ""
+        is_tracking = bool(row.get("is_tracking")) if row else False
+        if not is_tracking:
+            is_tracking = self._is_live_tracking(current, row_kind)
+        project_name = str(row.get("project_code") or row.get("project") or current.project_id) if row else current.project_id
+        self.hud.set_stats(
+            os.path.basename(current.file_path),
+            float(current.tracked_hours),
+            earned,
+            is_tracking=is_tracking,
+            project_name=project_name,
+        )
 
     def _refresh_history(self) -> None:
         selected_project = self.history_browser.selected_project()
@@ -651,21 +821,41 @@ class MainWindow(QMainWindow):
         self._refresh_history()
 
     def _assign_project(self, file_path: str) -> None:
+        if not file_path:
+            return
+        self._assign_projects([file_path])
+
+    def _assign_selected_projects(self) -> None:
+        file_paths = self.open_files_table.selected_file_paths()
+        if not file_paths:
+            QMessageBox.information(
+                self,
+                "No selection",
+                "Select one or more files in the Open Files list first.",
+            )
+            return
+        self._assign_projects(file_paths)
+
+    def _assign_projects(self, file_paths: list[str]) -> None:
+        paths = [path for path in file_paths if path]
+        if not paths:
+            return
         projects = [project.project_code for project in self.repository.list_projects()]
         if not projects:
             QMessageBox.information(self, "No projects", "Create a project first in Project Editor.")
             return
-        dialog = ProjectAssignDialog(file_path=file_path, projects=projects, parent=self)
+        dialog = ProjectAssignDialog(file_paths=paths, projects=projects, parent=self)
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         project_code = dialog.selected_project()
         if not project_code:
             return
-        self.file_project_overrides[file_path] = project_code
-        state = self.tracking_service.states_by_file.get(file_path)
-        if state is not None:
-            state.project_id = project_code
-            self.repository.update_session_duration(state, 0.0)
+        for file_path in dialog.file_paths:
+            self.file_project_overrides[file_path] = project_code
+            state = self.tracking_service.states_by_file.get(file_path)
+            if state is not None:
+                state.project_id = project_code
+                self.repository.update_session_duration(state, 0.0)
         self._save_project_overrides()
         self._tick()
 
@@ -727,6 +917,16 @@ class MainWindow(QMainWindow):
         self.global_hotkeys_enabled = bool(values.get("global_hotkeys_enabled", True))
         self.eod_notify_enabled = bool(values.get("eod_notify_enabled", True))
         self.eod_notify_hour = int(values.get("eod_notify_hour", 17))
+        self.sync_config = SyncConfig(
+            enabled=bool(values.get("sync_enabled", False)),
+            folder=str(values.get("sync_folder", "")),
+            machine_id=str(values.get("sync_machine_id", "")),
+            machine_label=str(values.get("sync_machine_label", "")),
+            sync_on_refresh=bool(values.get("sync_on_refresh", True)),
+        )
+        for key, value in settings_keys_from_sync_config(self.sync_config).items():
+            self.settings.setValue(key, value)
+        self.log_cache.clear()
         self.notification_service.set_enabled(self.notifications_enabled)
         self.hotkey_service.set_enabled(
             self.global_hotkeys_enabled and os.environ.get("VECTORTRACK_TESTING") != "1"
@@ -745,6 +945,37 @@ class MainWindow(QMainWindow):
     def _show_project_editor(self) -> None:
         ProjectEditorDialog(self.repository, self).exec()
         self._refresh_history()
+
+    def _create_new_project(self) -> None:
+        dialog = NewProjectDialog(default_rate=self.default_rate, parent=self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        code = str(values["project_code"]).strip()
+        name = str(values["project_name"]).strip()
+        client_name = str(values["client_name"]).strip() or "Default"
+        if not code or not name:
+            QMessageBox.warning(self, "Missing values", "Project code and name are required.")
+            return
+        existing = self.repository.get_project_by_code(code)
+        if existing is not None:
+            QMessageBox.warning(self, "Duplicate project", f"A project with code '{code}' already exists.")
+            return
+        clients = self.repository.list_clients(active_only=False)
+        client = next((c for c in clients if c.name.lower() == client_name.lower()), None)
+        if client is None:
+            client = self.repository.create_client(Client(name=client_name))
+        self.repository.create_project(
+            BillableProject(
+                client_id=client.id or 0,
+                project_code=code,
+                name=name,
+                hourly_rate=float(values["hourly_rate"]),
+            )
+        )
+        self._tick()
+        self._refresh_history()
+        self.statusBar().showMessage(f"Created project {code}", 3000)
 
     def _show_about(self) -> None:
         AboutDialog(self).exec()
@@ -853,28 +1084,108 @@ class MainWindow(QMainWindow):
         output = self.report_service.create_project_pdf(project_code, rows)
         QMessageBox.information(self, "Report created", f"Saved report to:\n{output}")
 
-    def _show_open_files_context_menu(self, pos) -> None:
-        row = self.open_files_table.rowAt(pos.y())
-        if row < 0:
+    def _open_session_explorer_for_file(self, file_path: str) -> None:
+        if not file_path:
             return
-        file_path = self.open_files_table.file_path_for_row(row)
-        project_code = self.open_files_table.item(row, 1).text() if self.open_files_table.item(row, 1) else ""
+        state = self.tracking_service.states_by_file.get(file_path)
+        project_code = self._project_for_file(file_path, state)
+        log_paths = self._active_log_paths()
+
+        def reload() -> list:
+            return self.session_aggregator.sessions_for_file(
+                file_path=file_path,
+                log_paths=log_paths,
+                project_id=project_code or None,
+            )
+
+        dialog = SessionExplorerDialog(
+            repository=self.repository,
+            log_paths=log_paths,
+            mode="file",
+            target=file_path,
+            project_id=project_code,
+            reload_callback=reload,
+            parent=self,
+        )
+        dialog.exec()
+        self._tick()
+        self._refresh_history()
+
+    def _open_session_explorer_for_project(self, project_code: str) -> None:
+        if not project_code:
+            return
+        log_paths = self._active_log_paths()
+
+        def reload() -> list:
+            return self.session_aggregator.sessions_for_project(
+                project_code=project_code,
+                log_paths=log_paths,
+                assigned_files=self.file_project_overrides,
+            )
+
+        dialog = SessionExplorerDialog(
+            repository=self.repository,
+            log_paths=log_paths,
+            mode="project",
+            target=project_code,
+            project_id=project_code,
+            reload_callback=reload,
+            parent=self,
+        )
+        dialog.exec()
+        self._tick()
+        self._refresh_history()
+
+    def _show_open_files_context_menu(self, pos) -> None:
+        selected_paths = self.open_files_table.selected_file_paths()
+        row = self.open_files_table.rowAt(pos.y())
+        if row < 0 and not selected_paths:
+            return
+        file_path = self.open_files_table.file_path_for_row(row) if row >= 0 else ""
+        if file_path and file_path not in selected_paths:
+            selected_paths = [file_path]
+        project_code = ""
+        if row >= 0 and self.open_files_table.item(row, 1):
+            project_code = self.open_files_table.item(row, 1).text()
         menu = QMenu(self)
-        menu.addAction("Assign Project...", lambda: self._assign_project(file_path))
-        manual_action = menu.addAction("Add Manual Time...", lambda: self._open_manual_entry(file_path))
-        if project_code and self.repository.is_project_locked(project_code):
-            manual_action.setEnabled(False)
+        if len(selected_paths) > 1:
+            menu.addAction(
+                "Assign Selected to Project...",
+                lambda: self._assign_projects(selected_paths),
+            )
+        else:
+            menu.addAction("Assign Project...", lambda: self._assign_project(selected_paths[0]))
+        if len(selected_paths) == 1:
+            menu.addAction(
+                "View Sessions...",
+                lambda: self._open_session_explorer_for_file(selected_paths[0]),
+            )
+            manual_action = menu.addAction(
+                "Add Manual Time...",
+                lambda: self._open_manual_entry(selected_paths[0]),
+            )
+            if project_code and self.repository.is_project_locked(project_code):
+                manual_action.setEnabled(False)
         menu.addSeparator()
         menu.addAction("Refresh", self._tick)
         menu.exec(self.open_files_table.viewport().mapToGlobal(pos))
 
     def _show_project_summary_context_menu(self, pos) -> None:
         row = self.project_summary_table.rowAt(pos.y())
+        menu = QMenu(self)
         if row < 0:
+            menu.addAction("New Project...", self._create_new_project)
+            menu.addAction("Project Editor...", self._show_project_editor)
+            menu.addSeparator()
+            menu.addAction("Refresh", self._tick)
+            menu.exec(self.project_summary_table.viewport().mapToGlobal(pos))
             return
         project_code = self.project_summary_table.project_code_for_row(row)
-        menu = QMenu(self)
+        menu.addAction("New Project...", self._create_new_project)
+        menu.addSeparator()
+        menu.addAction("View Sessions...", lambda: self._open_session_explorer_for_project(project_code))
         menu.addAction("Generate Project Report", lambda: self._generate_project_report(project_code))
+        menu.addAction("Project Editor...", self._show_project_editor)
         menu.exec(self.project_summary_table.viewport().mapToGlobal(pos))
 
     def _export_master_report(self) -> None:

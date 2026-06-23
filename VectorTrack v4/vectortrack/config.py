@@ -111,16 +111,33 @@ def license_key_path() -> Path:
     return resolve_data_dir() / "key.dat"
 
 
+def read_paths_json() -> dict[str, Any]:
+    """Load existing paths.json payload, or return an empty dict."""
+    target = paths_json_path()
+    if not target.is_file():
+        return {}
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return payload
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return {}
+
+
 def write_paths_json(extra: dict[str, Any] | None = None) -> Path:
     """Write a small path manifest consumed by legacy tooling."""
-    payload: dict[str, Any] = {
-        "portable_mode": _portable_mode,
-        "data_dir": str(resolve_data_dir()),
-        "db_path": str(db_path()),
-        "legacy_db_path": str(legacy_db_path()),
-        "projects_json": str(projects_json_path()),
-        "log_library": str(log_library_path()),
-    }
+    payload = read_paths_json()
+    payload.update(
+        {
+            "portable_mode": _portable_mode,
+            "data_dir": str(resolve_data_dir()),
+            "db_path": str(db_path()),
+            "legacy_db_path": str(legacy_db_path()),
+            "projects_json": str(projects_json_path()),
+            "log_library": str(log_library_path()),
+        }
+    )
     if extra:
         payload.update(extra)
     target = paths_json_path()

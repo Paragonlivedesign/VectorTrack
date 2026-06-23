@@ -564,6 +564,208 @@ class Repository:
             rows = conn.execute(query, params).fetchall()
         return [TimeSession.from_row(row) for row in rows]
 
+    def get_session(self, session_id: int) -> Optional[TimeSession]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+        return TimeSession.from_row(row) if row else None
+
+    def update_session(self, session: TimeSession) -> TimeSession:
+        if session.id is None:
+            raise ValueError("session.id is required for update")
+        if self.is_project_locked(session.project_id):
+            raise PermissionError(f"Project '{session.project_id}' is locked for billing")
+
+        existing = self.get_session(session.id)
+        if not existing:
+            raise ValueError(f"Session not found: {session.id}")
+
+        row = session.to_row()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE sessions
+                SET project_id=?, file_path=?, file_alias=?, machine_id=?, source=?,
+                    start_time=?, end_time=?, hourly_rate=?, live_duration=?,
+                    log_history_duration=?, log_current_open_hours=?,
+                    balance_delta_hours=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (
+                    row["project_id"],
+                    row["file_path"],
+                    row["file_alias"],
+                    row["machine_id"],
+                    row["source"],
+                    row["start_time"],
+                    row["end_time"],
+                    row["hourly_rate"],
+                    row["live_duration"],
+                    row["log_history_duration"],
+                    row["log_current_open_hours"],
+                    row["balance_delta_hours"],
+                    session.id,
+                ),
+            )
+            current = conn.execute("SELECT * FROM sessions WHERE id=?", (session.id,)).fetchone()
+
+        updated = TimeSession.from_row(current)
+        self.add_session_audit(
+            session_id=session.id,
+            action="update",
+            old_values=existing.to_dict(),
+            new_values=updated.to_dict(),
+            source=session.source,
+        )
+        return updated
+
+    def delete_session(self, session_id: int) -> None:
+        existing = self.get_session(session_id)
+        if not existing:
+            return
+        if self.is_project_locked(existing.project_id):
+            raise PermissionError(f"Project '{existing.project_id}' is locked for billing")
+        with self._connect() as conn:
+            self.add_session_audit(
+                session_id=session_id,
+                action="delete",
+                old_values=existing.to_dict(),
+                new_values=None,
+                source=existing.source,
+            )
+            conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+
+    def add_exclusion(
+        self,
+        file_alias: str,
+        start_time: str,
+        end_time: str | None = None,
+        machine_id: str | None = None,
+        log_key: str | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO session_exclusions(
+                    file_alias, start_time, end_time, machine_id, log_key, reason
+                )
+                VALUES(?, ?, ?, ?, ?, ?)
+                """,
+                (file_alias, start_time, end_time, machine_id, log_key, reason),
+            )
+            row = conn.execute(
+                "SELECT * FROM session_exclusions WHERE id=?",
+                (cursor.lastrowid,),
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def list_exclusions(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM session_exclusions ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_exclusion(self, exclusion_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM session_exclusions WHERE id=?", (exclusion_id,))
+
+    def add_adjustment(
+        self,
+        project_id: str,
+        file_path: str,
+        start_time: str,
+        end_time: str,
+        hourly_rate: float,
+        machine_id: str | None = None,
+        notes: str | None = None,
+        replaces_log_key: str | None = None,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO session_adjustments(
+                    project_id, file_path, start_time, end_time, hourly_rate,
+                    machine_id, notes, replaces_log_key
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_id,
+                    file_path,
+                    start_time,
+                    end_time,
+                    hourly_rate,
+                    machine_id,
+                    notes,
+                    replaces_log_key,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM session_adjustments WHERE id=?",
+                (cursor.lastrowid,),
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def list_adjustments(self, project_id: str | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM session_adjustments"
+        params: list[Any] = []
+        if project_id:
+            query += " WHERE project_id=?"
+            params.append(project_id)
+        query += " ORDER BY start_time DESC"
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_adjustment(
+        self,
+        adjustment_id: int,
+        project_id: str,
+        file_path: str,
+        start_time: str,
+        end_time: str,
+        hourly_rate: float,
+        machine_id: str | None = None,
+        notes: str | None = None,
+        replaces_log_key: str | None = None,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE session_adjustments
+                SET project_id=?, file_path=?, start_time=?, end_time=?, hourly_rate=?,
+                    machine_id=?, notes=?, replaces_log_key=?
+                WHERE id=?
+                """,
+                (
+                    project_id,
+                    file_path,
+                    start_time,
+                    end_time,
+                    hourly_rate,
+                    machine_id,
+                    notes,
+                    replaces_log_key,
+                    adjustment_id,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM session_adjustments WHERE id=?",
+                (adjustment_id,),
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def delete_adjustment(self, adjustment_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM session_adjustments WHERE id=?", (adjustment_id,))
+
+    def set_conflict_resolution(self, log_key: str, resolution: str) -> None:
+        self.set_setting(f"conflict_resolutions:{log_key}", resolution)
+
+    def get_conflict_resolution(self, log_key: str) -> str | None:
+        return self.get_setting(f"conflict_resolutions:{log_key}")
+
     # App settings
     def set_setting(self, key: str, value: str) -> None:
         with self._connect() as conn:

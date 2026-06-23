@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtCore import QSettings
 
 from vectortrack.config import format_version
 from PyQt6.QtWidgets import (
     QCheckBox,
-    QFormLayout,
     QLabel,
-    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWizard,
     QWizardPage,
-    QWidget,
 )
 
 
@@ -23,10 +20,7 @@ class FirstRunWizard(QWizard):
         super().__init__(parent)
         self.settings = settings
         self.setWindowTitle("VectorTrack Setup Wizard")
-        self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setOption(QWizard.WizardOption.NoBackButtonOnStartPage, True)
-        self.setMinimumSize(640, 480)
-        self.resize(720, 520)
 
         self.import_logs_check = QCheckBox("Import Vectorworks log history")
         self.import_logs_check.setChecked(settings.value("import_vw_log_history", True, type=bool))
@@ -41,93 +35,50 @@ class FirstRunWizard(QWizard):
         self.idle_minutes = QSpinBox()
         self.idle_minutes.setRange(1, 120)
         self.idle_minutes.setValue(settings.value("default_idle_timeout", 5, type=int))
-        self.idle_minutes.setMinimumWidth(120)
 
         self._build_pages()
         self.finished.connect(self._save_values)
 
     def _build_pages(self) -> None:
-        self.addPage(
-            self._text_page(
-                "Welcome",
-                f"Welcome to {format_version(include_product_name=True)}",
-                "VectorTrack tracks time on your open Vectorworks files automatically.\n\n"
-                "This short wizard sets a few defaults. You can change everything later in Settings.",
-            )
-        )
-        self.addPage(self._tracking_page())
+        self.addPage(self._page("Welcome", f"Welcome to {format_version(include_product_name=True)}.\nThis wizard will configure common defaults."))
+        self.addPage(self._checkbox_page("Tracking", "Choose how tracking should run.", self.auto_track_check))
+        self.addPage(self._checkbox_page("Log Imports", "Configure historical log import behavior.", self.import_logs_check))
+        self.addPage(self._checkbox_page("Merge Years", "Include previous years when scanning logs.", self.merge_years_check))
+        self.addPage(self._checkbox_page("Tray Behavior", "Choose close behavior.", self.minimize_tray_check))
         self.addPage(self._appearance_page())
-        self.addPage(
-            self._text_page(
-                "Finish",
-                "You're all set",
-                "Click Finish to save these defaults and start using VectorTrack.",
-            )
-        )
+        self.addPage(self._page("Finish", "Click Finish to save these defaults.\nYou can update settings any time."))
 
     @staticmethod
-    def _styled_label(text: str, *, title: bool = False) -> QLabel:
+    def _page(title: str, text: str) -> QWizardPage:
+        page = QWizardPage()
+        page.setTitle(title)
+        layout = QVBoxLayout(page)
         label = QLabel(text)
         label.setWordWrap(True)
-        label.setMinimumWidth(520)
-        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        if title:
-            label.setStyleSheet("font-size: 14pt; font-weight: 600; margin-bottom: 8px;")
-        else:
-            label.setStyleSheet("font-size: 10pt; line-height: 1.35;")
-        return label
-
-    @classmethod
-    def _text_page(cls, name: str, heading: str, body: str) -> QWizardPage:
-        page = QWizardPage()
-        page.setTitle(name)
-        page.setSubTitle(heading)
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
-        layout.addWidget(cls._styled_label(body))
+        layout.addWidget(label)
         layout.addStretch()
         return page
 
-    def _tracking_page(self) -> QWizardPage:
+    @staticmethod
+    def _checkbox_page(title: str, text: str, checkbox: QCheckBox) -> QWizardPage:
         page = QWizardPage()
-        page.setTitle("Tracking")
-        page.setSubTitle("How VectorTrack should watch your work")
+        page.setTitle(title)
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(10)
-        layout.addWidget(
-            self._styled_label(
-                "Choose whether VectorTrack starts tracking automatically and how it reads "
-                "your Vectorworks log files."
-            )
-        )
-        for checkbox in (
-            self.auto_track_check,
-            self.import_logs_check,
-            self.merge_years_check,
-            self.minimize_tray_check,
-        ):
-            checkbox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            layout.addWidget(checkbox)
+        label = QLabel(text)
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        layout.addWidget(checkbox)
         layout.addStretch()
         return page
 
     def _appearance_page(self) -> QWizardPage:
         page = QWizardPage()
-        page.setTitle("Appearance")
-        page.setSubTitle("Theme and idle timeout")
+        page.setTitle("Appearance and Idle")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(10)
-        layout.addWidget(self._styled_label("Pick a theme and how long to wait before pausing for idle time."))
         layout.addWidget(self.dark_mode_check)
-        form_host = QWidget(page)
-        form = QFormLayout(form_host)
-        form.setContentsMargins(0, 8, 0, 0)
-        form.addRow("Idle timeout (minutes)", self.idle_minutes)
-        layout.addWidget(form_host)
+        idle_label = QLabel("Idle timeout (minutes)")
+        layout.addWidget(idle_label)
+        layout.addWidget(self.idle_minutes)
         layout.addStretch()
         return page
 

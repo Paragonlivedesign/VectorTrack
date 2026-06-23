@@ -174,8 +174,7 @@ class TrackingService:
             active_window = self.process_monitor.get_active_window()
             return bool(active_window and active_window.file_path == file_path)
         if mode == "vw_file_open":
-            windows = self.process_monitor.refresh()
-            open_paths = {window.file_path for window in windows if window.file_path}
+            open_paths = {window.file_path for window in self.process_monitor.vectorworks_windows if window.file_path}
             return file_path in open_paths
         if mode == "log_open":
             if self.log_open_checker is None:

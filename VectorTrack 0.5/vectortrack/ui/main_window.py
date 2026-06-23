@@ -761,7 +761,7 @@ class MainWindow(QMainWindow):
         return self.tracking_service.should_count_time(state.file_path)
 
     def _rows_from_tracking(self) -> list[dict[str, object]]:
-        windows = self.process_monitor.refresh()
+        windows = self.process_monitor.vectorworks_windows
         open_paths = {window.file_path for window in windows if window.file_path}
         closed_paths = self.process_monitor.get_closed_files()
         self._update_session_files(open_paths, closed_paths)

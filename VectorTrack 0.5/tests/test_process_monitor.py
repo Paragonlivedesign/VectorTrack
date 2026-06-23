@@ -32,6 +32,7 @@ def test_window_info_creation():
     assert info.file_path == "Test.vwx"
 
 
+@patch("win32gui.IsWindow")
 @patch("win32gui.IsWindowVisible")
 @patch("win32gui.GetWindowText")
 @patch("win32gui.GetClassName")
@@ -43,8 +44,10 @@ def test_window_enum_callback(
     mock_get_class,
     mock_get_text,
     mock_is_visible,
+    mock_is_window,
     process_monitor,
 ):
+    mock_is_window.return_value = True
     mock_is_visible.return_value = True
     mock_get_text.return_value = "Test.vwx - Vectorworks"
     mock_get_class.return_value = "VectorworksFrame"
@@ -63,9 +66,11 @@ def test_window_enum_callback(
     assert window.file_path == "Test.vwx"
 
 
+@patch("win32gui.IsWindow")
 @patch("win32gui.IsWindowVisible")
 @patch("win32gui.GetWindowPlacement")
-def test_is_window_visible(mock_placement, mock_is_visible, process_monitor):
+def test_is_window_visible(mock_placement, mock_is_visible, mock_is_window, process_monitor):
+    mock_is_window.return_value = True
     mock_is_visible.return_value = True
     mock_placement.return_value = (0, 1, 0, 0, 0)
     assert process_monitor._is_window_visible(123) is True
@@ -77,6 +82,41 @@ def test_is_window_visible(mock_placement, mock_is_visible, process_monitor):
 def test_get_file_path_from_title(process_monitor):
     assert process_monitor._get_file_path_from_title("MyProject.vwx - Vectorworks") == "MyProject.vwx"
     assert process_monitor._get_file_path_from_title("Vectorworks") is None
+    assert (
+        process_monitor._get_file_path_from_title("Vectorworks Spotlight 2026 - [CCC Exhibit Hall v2026.vwx]")
+        == "CCC Exhibit Hall v2026.vwx"
+    )
+
+
+@patch("win32gui.IsWindow")
+@patch("win32gui.EnumChildWindows")
+@patch("win32gui.IsWindowVisible")
+@patch("win32gui.GetWindowText")
+@patch("win32process.GetWindowThreadProcessId")
+@patch("psutil.Process")
+def test_window_enum_uses_title_only(
+    mock_process,
+    mock_get_pid,
+    mock_get_text,
+    mock_is_visible,
+    mock_enum_child_windows,
+    mock_is_window,
+    process_monitor,
+):
+    mock_is_window.return_value = True
+    mock_is_visible.return_value = True
+    mock_get_text.return_value = "Vectorworks Spotlight 2026 - [Project.vwx]"
+    mock_get_pid.return_value = (0, 123)
+    mock_process_obj = Mock()
+    mock_process_obj.name.return_value = "Vectorworks.exe"
+    mock_process.return_value = mock_process_obj
+
+    windows = []
+    process_monitor._window_enum_callback(456, windows)
+
+    mock_enum_child_windows.assert_not_called()
+    assert len(windows) == 1
+    assert windows[0].file_path == "Project.vwx"
 
 
 @patch("win32gui.EnumWindows")

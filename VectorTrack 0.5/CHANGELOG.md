@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.3-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Fix crash with Vectorworks open** — removed deep child-window walk (VW 2026 has hundreds of HWNDs); parse file name from main window title only
+- **Performance** — one window scan per tick instead of two or three
+- Safer Win32 calls with invalid-handle checks and refresh error recovery
+- Installer artifact: `VectorTrack-0.5.3-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.3 beta**
+
+---
+
 ## [0.5.2-beta] — 2026-06
 
 ### VectorTrack (desktop)

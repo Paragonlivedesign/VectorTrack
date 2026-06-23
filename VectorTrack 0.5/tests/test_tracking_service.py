@@ -32,10 +32,12 @@ class FakeProcessMonitor:
             is_visible=True,
             is_active=True,
         )
+        self.vectorworks_windows = [self.window]
         self._foreground = foreground
 
     def refresh(self):
-        return [self.window]
+        self.vectorworks_windows = [self.window]
+        return self.vectorworks_windows
 
     def get_active_window(self):
         if self._foreground:

@@ -5,7 +5,6 @@ Process monitoring module for tracking Vectorworks application status.
 import win32gui
 import win32process
 import win32con
-import win32api
 from typing import Optional, Tuple, List, Dict
 import os
 from dataclasses import dataclass
@@ -58,6 +57,13 @@ class ProcessMonitor:
             "export",
             "processing",
         )
+
+    @staticmethod
+    def _is_valid_hwnd(hwnd: int) -> bool:
+        try:
+            return bool(hwnd) and win32gui.IsWindow(hwnd)
+        except Exception:
+            return False
         
     def find_vectorworks_installations(self) -> Dict[str, str]:
         """Find installed Vectorworks versions."""
@@ -170,159 +176,97 @@ class ProcessMonitor:
         
     def _window_enum_callback(self, hwnd: int, windows: List[WindowInfo]) -> None:
         """Callback for EnumWindows to find Vectorworks windows."""
-        if not self.process_name:
-            logger.debug("No Vectorworks process name set")
+        if not self.process_name or not self._is_valid_hwnd(hwnd):
             return
-            
-        # Skip invisible windows
-        if not win32gui.IsWindowVisible(hwnd):
-            return
-            
+
         try:
-            # Get process info first
+            if not win32gui.IsWindowVisible(hwnd):
+                return
+
             _, process_id = win32process.GetWindowThreadProcessId(hwnd)
             process = psutil.Process(process_id)
             process_name = process.name().lower()
-            
+
             if process_name != self.process_name:
                 return
-                
-            # Get window title and class name
+
             title = win32gui.GetWindowText(hwnd)
-            class_name = win32gui.GetClassName(hwnd)
-            
-            # Debug logging
-            logger.debug(f"Found Vectorworks window - Handle: {hwnd}")
-            logger.debug(f"  Title: {title}")
-            logger.debug(f"  Class: {class_name}")
-            logger.debug(f"  Process: {process_name}")
-            
-            # Skip empty titles
             if not title:
                 return
-                
-            # Check if this window has a file path
+
             file_path = self._get_file_path_from_title(title)
             if not file_path:
-                # Try to find file path in child windows
-                def enum_child_proc(child_hwnd, child_windows):
-                    child_title = win32gui.GetWindowText(child_hwnd)
-                    logger.debug(f"  Child window title: {child_title}")
-                    if child_title and ".vwx" in child_title:
-                        child_file = self._get_file_path_from_title(child_title)
-                        if child_file:
-                            child_windows.append(child_file)
-                
-                child_files = []
-                try:
-                    win32gui.EnumChildWindows(hwnd, enum_child_proc, child_files)
-                    if child_files:
-                        file_path = child_files[0]
-                except Exception as e:
-                    logger.debug(f"Error enumerating child windows: {e}")
-            
-            if file_path:
-                is_visible = self._is_window_visible(hwnd)
-                # Check if this is a new file we haven't seen before
-                if not any(w.file_path == file_path for w in self.vectorworks_windows):
-                    logger.info(f">>> New Vectorworks file detected: {file_path} <<<")
-                window_info = WindowInfo(
-                    hwnd=hwnd,
-                    title=title,
-                    process_id=process_id,
-                    file_path=file_path,
-                    is_visible=is_visible,
-                    monitor=self._get_window_monitor(hwnd)
-                )
-                windows.append(window_info)
-                logger.info(f"Added window info - File: {file_path}, Visible: {is_visible}")
-                
+                return
+
+            is_visible = self._is_window_visible(hwnd)
+            if not any(w.file_path == file_path for w in windows):
+                logger.info(f">>> New Vectorworks file detected: {file_path} <<<")
+            window_info = WindowInfo(
+                hwnd=hwnd,
+                title=title,
+                process_id=process_id,
+                file_path=file_path,
+                is_visible=is_visible,
+                monitor=None,
+            )
+            windows.append(window_info)
+            logger.debug(f"Vectorworks window: {file_path} (visible={is_visible})")
+
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
             logger.debug(f"Process access error: {e}")
-            pass
+        except Exception as e:
+            logger.debug(f"Window enum skipped for hwnd {hwnd}: {e}")
             
     def _get_file_path_from_title(self, title: str) -> Optional[str]:
         """Extract file path from window title if possible."""
-        # Debug logging
-        logger.debug(f"Extracting file path from title: {title}")
-        
-        # First check for simple .vwx filename
         if title.endswith(".vwx"):
             if " - " not in title and "[" not in title:
-                logger.debug(f"Found direct filename: {title}")
                 return title
-        
-        # Handle "Vectorworks Spotlight 2025 - Test2.vwx" format
+
         if " - " in title:
             parts = title.split(" - ")
-            for part in reversed(parts):  # Check parts from end to start
+            for part in reversed(parts):
                 if part.endswith(".vwx"):
-                    logger.debug(f"Found .vwx in part: {part}")
                     return part.strip()
-        
-        # Common Vectorworks title formats
+
         if "[" in title and "]" in title:
-            # Format: "Vectorworks Spotlight 2025 - [PROJECT001.vwx]"
             start = title.find("[") + 1
             end = title.find("]")
             if start > 0 and end > start:
                 file_path = title[start:end]
                 if file_path.endswith(".vwx"):
-                    logger.debug(f"Found .vwx in brackets: {file_path}")
                     return file_path
-        
-        # Last resort: look for any .vwx filename
+
         if ".vwx" in title:
-            # Find the last occurrence of .vwx
             vwx_index = title.rfind(".vwx")
             if vwx_index != -1:
-                # Look backwards for a space or dash
                 start_index = max(
                     title.rfind(" ", 0, vwx_index),
                     title.rfind("-", 0, vwx_index),
                     title.rfind("[", 0, vwx_index),
-                    title.rfind("\\", 0, vwx_index)
+                    title.rfind("\\", 0, vwx_index),
                 )
                 if start_index != -1:
-                    file_path = title[start_index + 1:vwx_index + 4].strip()
+                    file_path = title[start_index + 1 : vwx_index + 4].strip()
                     if file_path:
-                        logger.debug(f"Found .vwx filename: {file_path}")
                         return file_path
-                else:
-                    # If no separator found, take everything up to .vwx
-                    file_path = title[:vwx_index + 4].strip()
-                    if file_path:
-                        logger.debug(f"Found .vwx without separator: {file_path}")
-                        return file_path
-        
-        logger.debug("Could not extract file path from title")
+                file_path = title[: vwx_index + 4].strip()
+                if file_path:
+                    return file_path
+
         return None
         
     def _is_window_visible(self, hwnd: int) -> bool:
         """Check if window is visible and not minimized."""
-        if not win32gui.IsWindowVisible(hwnd):
+        if not self._is_valid_hwnd(hwnd) or not win32gui.IsWindowVisible(hwnd):
             return False
-            
+
         try:
             placement = win32gui.GetWindowPlacement(hwnd)
-            is_visible = placement[1] != win32con.SW_SHOWMINIMIZED
-            logger.debug(f"Window visibility check - Handle: {hwnd}, Visible: {is_visible}")
-            return is_visible
+            return placement[1] != win32con.SW_SHOWMINIMIZED
         except Exception as e:
-            logger.error(f"Error checking window visibility: {e}")
+            logger.debug(f"Error checking window visibility for {hwnd}: {e}")
             return False
-        
-    def _get_window_monitor(self, hwnd: int) -> Optional[int]:
-        """Get the monitor index where the window is displayed."""
-        try:
-            monitor = win32api.MonitorFromWindow(hwnd, win32con.MONITOR_DEFAULTTONEAREST)
-            monitors = win32api.EnumDisplayMonitors(None, None)
-            for i, (hMonitor, _, _) in enumerate(monitors):
-                if hMonitor == monitor:
-                    return i
-        except Exception as e:
-            logger.error(f"Error getting monitor info: {e}")
-        return None
         
     def refresh(self) -> List[WindowInfo]:
         """Refresh the list of Vectorworks windows."""
@@ -331,12 +275,17 @@ class ProcessMonitor:
             return []
 
         previous_files = {w.file_path for w in self.vectorworks_windows if w.file_path}
-        self.vectorworks_windows.clear()
-        win32gui.EnumWindows(self._window_enum_callback, self.vectorworks_windows)
-        foreground_hwnd = win32gui.GetForegroundWindow()
-        for window in self.vectorworks_windows:
-            window.is_active = window.hwnd == foreground_hwnd
+        discovered: List[WindowInfo] = []
+        try:
+            win32gui.EnumWindows(self._window_enum_callback, discovered)
+            foreground_hwnd = win32gui.GetForegroundWindow()
+            for window in discovered:
+                window.is_active = window.hwnd == foreground_hwnd
+        except Exception as e:
+            logger.error(f"Vectorworks window refresh failed: {e}")
+            return self.vectorworks_windows
 
+        self.vectorworks_windows = discovered
         current_files = {w.file_path for w in self.vectorworks_windows if w.file_path}
         closed = sorted(path for path in (previous_files - current_files) if path)
         if closed:
@@ -345,12 +294,11 @@ class ProcessMonitor:
                 logger.info(f"Detected closed Vectorworks file: {file_path}")
         self._last_file_paths = current_files
 
-        # Debug logging
-        if not self.vectorworks_windows:
-            logger.debug("No Vectorworks windows found")
-        else:
+        if self.vectorworks_windows:
             logger.debug(f"Found {len(self.vectorworks_windows)} Vectorworks windows")
-            
+        else:
+            logger.debug("No Vectorworks windows found")
+
         return self.vectorworks_windows
         
     def is_file_active(self, file_path: str) -> bool:

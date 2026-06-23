@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QSettings, Qt
+
+from vectortrack.config import format_version
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFormLayout,
@@ -48,7 +50,7 @@ class FirstRunWizard(QWizard):
         self.addPage(
             self._text_page(
                 "Welcome",
-                "Welcome to VectorTrack v4",
+                f"Welcome to {format_version(include_product_name=True)}",
                 "VectorTrack tracks time on your open Vectorworks files automatically.\n\n"
                 "This short wizard sets a few defaults. You can change everything later in Settings.",
             )

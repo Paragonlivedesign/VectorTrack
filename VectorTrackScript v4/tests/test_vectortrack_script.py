@@ -1,4 +1,4 @@
-"""Tests for VectorTrackScript v3 (no Vectorworks required)."""
+"""Tests for VectorTrackScript v4 (no Vectorworks required)."""
 
 import os
 import sys

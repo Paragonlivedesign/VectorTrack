@@ -5,8 +5,16 @@ VSM wrapper: import vectortrackscript_main; vectortrackscript_main.execute()
 import importlib
 import traceback
 
-PLUGIN_NAME = 'VectorTrackScript v4'
-PLUGIN_VERSION = '4.0.0'
+PLUGIN_NAME = 'VectorTrackScript'
+PLUGIN_VERSION = '0.4.0'
+PLUGIN_BETA = True
+
+
+def format_plugin_version() -> str:
+    label = f'{PLUGIN_NAME} {PLUGIN_VERSION}'
+    if PLUGIN_BETA:
+        label += ' beta'
+    return label
 PLUGIN_AUTHOR = 'PLD (Paragon Live Design)'
 PLUGIN_EMAIL = 'Cody@Paragonlivedesign.com'
 PLUGIN_DONATE = 'Donate: https://venmo.com/Cody-Lisle'

@@ -1,5 +1,5 @@
 """
-Shared pytest configuration for VectorTrack v3.
+Shared pytest configuration for VectorTrack v4.
 """
 
 import os

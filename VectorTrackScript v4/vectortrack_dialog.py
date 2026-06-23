@@ -24,8 +24,7 @@ from vectortrackscript_main import (
     PLUGIN_AUTHOR,
     PLUGIN_DONATE,
     PLUGIN_EMAIL,
-    PLUGIN_NAME,
-    PLUGIN_VERSION,
+    format_plugin_version,
 )
 
 # Layout item IDs
@@ -182,7 +181,7 @@ def _copy_summary():
 
 def _show_about():
     about_text = (
-        f'{PLUGIN_NAME} v{PLUGIN_VERSION}\n\n'
+        f'{format_plugin_version()}\n\n'
         f'Time tracking summary from Vectorworks Log.txt\n'
         f'for the currently open project file.\n\n'
         f'By {PLUGIN_AUTHOR}\n'
@@ -195,7 +194,7 @@ def _show_about():
 def _create_dialog():
     global _dialog
     _dialog = vs.CreateLayout(
-        f'{PLUGIN_NAME} v{PLUGIN_VERSION}',
+        format_plugin_version(),
         True,
         'Close',
         '',

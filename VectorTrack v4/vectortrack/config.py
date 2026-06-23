@@ -9,7 +9,16 @@ from pathlib import Path
 from typing import Any
 
 APP_NAME = "VectorTrack"
-APP_VERSION = "4.0.0"
+APP_VERSION = "0.4.0"
+APP_BETA = True
+
+
+def format_version(*, include_product_name: bool = False) -> str:
+    """Return semver label, with optional product name and beta suffix."""
+    label = f"{APP_NAME} {APP_VERSION}" if include_product_name else APP_VERSION
+    if APP_BETA:
+        label += " beta"
+    return label
 
 ENFORCE_LICENSING = False
 

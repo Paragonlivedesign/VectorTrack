@@ -4,11 +4,11 @@ Vectorworks menu command — time summary from `Vectorworks Log.txt` for the doc
 
 | | |
 |---|---|
-| **Version** | 4.0.0 beta |
+| **Version** | 0.4.0 beta |
 | **Tested with** | Vectorworks 2025 / 2026 |
 | **Publisher** | Paragon Live Design |
 
-Source tree for the in-Vectorworks plug-in. See the [repository README](../README.md) for 4.0 beta release notes.
+Source tree for the in-Vectorworks plug-in. See the [repository README](../README.md) for 0.4 beta release notes.
 
 ---
 
@@ -28,11 +28,11 @@ Install via **Tools → Plug-ins → Plug-in Manager → Third-party Plug-ins �
 %APPDATA%\Nemetschek\Vectorworks\<year>\Plug-ins\VectorTrackScript v4\
 ```
 
-Register the `.vsm` once in Plug-in Manager (paste [`VSM_WRAPPER.py`](VSM_WRAPPER.py); name must be **`VectorTrackScript v4`**).
+Register the `.vsm` once in Plug-in Manager (paste [`VSM_WRAPPER.py`](VSM_WRAPPER.py); menu command name must be **`VectorTrackScript v4`**).
 
 ---
 
-## 4.0.0 beta — changes
+## 0.4.0 beta — changes
 
 - Client, budget, and trust-note fields in the summary dialog
 - Alias-aware parsing for renamed / save-as files
@@ -71,4 +71,4 @@ python -m pytest tests\ -q
 
 ## Related
 
-Standalone desktop app: [`VectorTrack v3/`](../VectorTrack%20v3/)
+Standalone desktop app: [`VectorTrack v4/`](../VectorTrack%20v4/)

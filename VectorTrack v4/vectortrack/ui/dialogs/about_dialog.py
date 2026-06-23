@@ -6,8 +6,7 @@ from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from vectortrack import __version__
-from vectortrack.config import COMPANY_NAME, SUPPORT_EMAIL as CFG_SUPPORT_EMAIL, VENMO_HANDLE
+from vectortrack.config import COMPANY_NAME, SUPPORT_EMAIL as CFG_SUPPORT_EMAIL, VENMO_HANDLE, format_version
 
 
 class AboutDialog(QDialog):
@@ -19,7 +18,7 @@ class AboutDialog(QDialog):
         self.setMinimumWidth(460)
 
         layout = QVBoxLayout(self)
-        title = QLabel(f"VectorTrack v{__version__}")
+        title = QLabel(format_version(include_product_name=True))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 18px; font-weight: 700;")
         layout.addWidget(title)

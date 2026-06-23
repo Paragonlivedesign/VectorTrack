@@ -1,12 +1,14 @@
 # Changelog
 
-## [4.0.0-beta] — 2026-06
+## [0.4.0-beta] — 2026-06
 
 Beta release. Invited testers only; installer not code-signed.
 
+Semver is **0.4.x** while in beta (not 4.0.0). Source folders: `VectorTrack v4/`, `VectorTrackScript v4/`.
+
 ### VectorTrack (desktop)
 
-- Added Windows installer (`VectorTrack-v4-Setup.exe`) via Inno Setup
+- Added Windows installer (`VectorTrack-0.4.0-Setup.exe`) via Inno Setup
 - Added optional cross-machine log sync through a user-chosen cloud-synced folder
 - Added `build.ps1` / `build_installer.ps1` packaging chain
 - Added main-window smoke tests for CI

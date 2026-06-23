@@ -7,7 +7,7 @@ $betaRoot = [System.IO.Path]::GetFullPath($betaRoot)
 
 $standaloneSrc = $root
 $standaloneDst = Join-Path $betaRoot "VectorTrack v4"
-$scriptSrc = Join-Path (Split-Path $root -Parent) "VectorTrackScript v3"
+$scriptSrc = Join-Path (Split-Path $root -Parent) "VectorTrackScript v4"
 $scriptDst = Join-Path $betaRoot "VectorTrackScript v4"
 $buildSrc = "C:\Temp\VectorTrackBuild\VectorTrack"
 

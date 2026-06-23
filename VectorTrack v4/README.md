@@ -4,11 +4,11 @@ Windows desktop time tracker for Vectorworks.
 
 | | |
 |---|---|
-| **Version** | 4.0.0 beta |
+| **Version** | 0.4.0 beta |
 | **Platform** | Windows 10+ |
 | **Publisher** | Paragon Live Design |
 
-Source tree for the standalone app. See the [repository README](../README.md) for 4.0 beta release notes.
+Source tree for the standalone app. See the [repository README](../README.md) for 0.4 beta release notes.
 
 ---
 
@@ -33,11 +33,11 @@ $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
 
 ```powershell
 .\build.ps1                  # VectorTrack.exe (writes to C:\Temp\VectorTrackBuild)
-.\build.ps1 -WithInstaller   # exe + VectorTrack-v4-Setup.exe
+.\build.ps1 -WithInstaller   # exe + VectorTrack-0.4.0-Setup.exe
 ```
 
 Portable build: `C:\Temp\VectorTrackBuild\VectorTrack\VectorTrack.exe`  
-Installer: `dist\installer\VectorTrack-v4-Setup.exe`
+Installer: `dist\installer\VectorTrack-0.4.0-Setup.exe`
 
 ---
 
@@ -49,5 +49,5 @@ Installer: `dist\installer\VectorTrack-v4-Setup.exe`
 
 ## Related
 
-In-Vectorworks plug-in: [`VectorTrackScript v3/`](../VectorTrackScript%20v3/)  
+In-Vectorworks plug-in: [`VectorTrackScript v4/`](../VectorTrackScript%20v4/)  
 Changelog: [`CHANGELOG.md`](CHANGELOG.md)

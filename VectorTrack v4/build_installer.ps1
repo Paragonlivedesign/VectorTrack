@@ -65,15 +65,15 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$setupExe = Join-Path $installerOut "VectorTrack-v4-Setup.exe"
+$setupExe = Join-Path $installerOut "VectorTrack-0.4.0-Setup.exe"
 if (Test-Path $setupExe) {
     Write-Host "Installer built: $setupExe" -ForegroundColor Green
 
     $betaInstaller = "I:\My Drive\Software\Vectorworks\Custom Plug ins\_2 Beta Testing\VectorTrack v4\release"
     if (Test-Path (Split-Path $betaInstaller -Parent)) {
         New-Item -ItemType Directory -Force -Path $betaInstaller | Out-Null
-        Copy-Item $setupExe (Join-Path $betaInstaller "VectorTrack-v4-Setup.exe") -Force
-        Write-Host "Copied to beta: $betaInstaller\VectorTrack-v4-Setup.exe" -ForegroundColor Green
+        Copy-Item $setupExe (Join-Path $betaInstaller "VectorTrack-0.4.0-Setup.exe") -Force
+        Write-Host "Copied to beta: $betaInstaller\VectorTrack-0.4.0-Setup.exe" -ForegroundColor Green
     }
 } else {
     Write-Host "Build finished but setup exe not found at expected path." -ForegroundColor Yellow

@@ -83,6 +83,13 @@ def logs_dir() -> Path:
     return target
 
 
+def reports_dir() -> Path:
+    """Resolve and create the writable PDF/CSV report output directory."""
+    target = resolve_data_dir() / "reports"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def db_path() -> Path:
     """Full path to the v4 SQLite database file."""
     return resolve_data_dir() / DEFAULT_DB_FILENAME

@@ -16,6 +16,7 @@
 - **Single-instance guard** — launching again raises the existing window instead of opening a second copy
 - Updated application icons (tray, About dialog, window)
 - **Logs stored in AppData** — fixes startup failure when installed under Program Files
+- **Reports stored in AppData** — same fix for PDF/CSV output folder
 - Installer artifact: `VectorTrack-0.5.0-Setup.exe`
 
 ### VectorTrackScript (plug-in)

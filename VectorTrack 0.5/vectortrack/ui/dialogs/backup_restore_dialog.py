@@ -52,7 +52,7 @@ class BackupRestoreDialog(QDialog):
         data_dir = config.resolve_data_dir()
         targets = [
             str(data_dir / config.DEFAULT_DB_FILENAME),
-            "reports",
+            str(config.reports_dir()),
             str(config.logs_dir()),
         ]
         try:

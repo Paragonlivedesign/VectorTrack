@@ -46,6 +46,15 @@ def test_logs_dir_lives_under_data_dir(monkeypatch, tmp_path):
     assert resolved.is_dir()
 
 
+def test_reports_dir_lives_under_data_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
+
+    resolved = config.reports_dir()
+
+    assert resolved == tmp_path / "reports"
+    assert resolved.is_dir()
+
+
 def test_write_paths_json(monkeypatch, tmp_path):
     monkeypatch.setenv(config.ENV_DATA_DIR, str(tmp_path))
     target = config.write_paths_json(extra={"custom": "ok"})

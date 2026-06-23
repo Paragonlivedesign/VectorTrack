@@ -92,7 +92,7 @@ class MainWindow(QMainWindow):
         self.billing_service = billing_service
         self.process_monitor = process_monitor
         self.activity_monitor = activity_monitor
-        self.report_service = ReportService(output_dir="reports")
+        self.report_service = ReportService(output_dir=str(config.reports_dir()))
         self.backup_service = BackupService(
             backup_dir=str(config.resolve_data_dir() / "backups"),
             retention_count=config.BACKUP_RETENTION_COUNT,

@@ -8,19 +8,26 @@ Vectorworks menu command — time summary from `Vectorworks Log.txt` for the doc
 | **Tested with** | Vectorworks 2025 / 2026 |
 | **Publisher** | Paragon Live Design |
 
-Source tree for the in-Vectorworks plug-in. See the [repository README](../README.md) for release notes.
+**Download:** get **`VectorTrackScript_0.5.zip`** from **[GitHub Releases](https://github.com/Paragonlivedesign/VectorTrack/releases/latest)**.
+
+**Build from source:** see [`docs/DEVELOPMENT.md`](../docs/DEVELOPMENT.md).
 
 ---
 
 ## Install
 
-**From zip**
+**From release zip**
+
+1. Download `VectorTrackScript_0.5.zip` from [Latest Release](https://github.com/Paragonlivedesign/VectorTrack/releases/latest).
+2. In Vectorworks: **Tools → Plug-ins → Plug-in Manager → Third-party Plug-ins → Install…** and select the zip.
+
+**From source (developers)**
 
 ```powershell
 .\package_plugin.ps1
 ```
 
-Install via **Tools → Plug-ins → Plug-in Manager → Third-party Plug-ins → Install**.
+Then install the generated zip via Plug-in Manager.
 
 **Manual copy** — all `.py` files to:
 
@@ -29,12 +36,6 @@ Install via **Tools → Plug-ins → Plug-in Manager → Third-party Plug-ins �
 ```
 
 Register the `.vsm` once in Plug-in Manager (paste [`VSM_WRAPPER.py`](VSM_WRAPPER.py); menu command name must be **`VectorTrackScript 0.5`**).
-
----
-
-## 0.5.0 beta
-
-Aligned with VectorTrack desktop **0.5.0 beta**. See [`VectorTrack 0.5/CHANGELOG.md`](../VectorTrack%200.5/CHANGELOG.md).
 
 ---
 
@@ -56,15 +57,7 @@ Optional, off by default. Enable in the **Sync...** dialog or set `sync` in `pat
 
 ---
 
-## Tests
-
-```powershell
-$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-python -m pytest tests\ -q
-```
-
----
-
 ## Related
 
-Standalone desktop app: [`VectorTrack 0.5/`](../VectorTrack%200.5/)
+- Standalone desktop app: [`VectorTrack 0.5/`](../VectorTrack%200.5/) · [download installer](https://github.com/Paragonlivedesign/VectorTrack/releases/latest)
+- Changelog: [`VectorTrack 0.5/CHANGELOG.md`](../VectorTrack%200.5/CHANGELOG.md)

@@ -6,7 +6,7 @@
 
 - Legacy prototypes and alpha code moved to the `archive` branch; `main` is active 0.5 source only
 - Renamed folders to `VectorTrack 0.5/` and `VectorTrackScript 0.5/`
-- Portable app and installer tracked under `VectorTrack 0.5/release/`
+- Beta builds distributed via GitHub Releases (installer + plug-in zip); `release/` is local build output only
 - Removed local build scratch dirs from version control
 
 ### VectorTrack (desktop)

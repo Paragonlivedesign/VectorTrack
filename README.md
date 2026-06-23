@@ -1,103 +1,131 @@
 # VectorTrack
 
-Time tracking built around Vectorworks workflow — a Windows desktop app and an in-app menu command that read the same activity logs.
+Time tracking built around your Vectorworks workflow — a Windows desktop app and an optional in-app menu command for session summaries and billing.
 
 | | |
 |---|---|
-| **Release** | 0.5.0 beta |
-| **Updated** | June 2026 |
+| **Version** | 0.5.0 beta |
+| **Platform** | Windows 10+ · Vectorworks 2025 / 2026 (plug-in) |
 | **Publisher** | [Paragon Live Design](https://paragonlivedesign.com) |
 | **Support** | Cody@Paragonlivedesign.com |
 
-> **Beta.** Builds are for internal and invited testers. Windows may show a SmartScreen warning because the installer is not code-signed yet. Expect rough edges; report issues to support.
+> **Beta software.** Builds are for invited testers. Source on `main` updates continuously; **install from a tagged [GitHub Release](https://github.com/Paragonlivedesign/VectorTrack/releases/latest)** for a tested snapshot. Windows may show a SmartScreen warning because the installer is not code-signed yet — choose **More info → Run anyway**. Expect rough edges; report issues to support.
 
 ---
 
-## Versioning
+## Download
 
-Pre-1.0 beta releases use **`0.5.x`** semver (e.g. `0.5.0`, `0.5.1`). Active source lives in **`VectorTrack 0.5/`** and **`VectorTrackScript 0.5/`** on `main`.
+**[Download latest beta (Windows installer)](https://github.com/Paragonlivedesign/VectorTrack/releases/latest)**
 
-Legacy prototypes (alpha, v0, v1, early TimeTracker scripts) are preserved on the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.
+Each release includes:
+
+| File | What it is |
+|------|------------|
+| **`VectorTrack-0.5.0-Setup.exe`** | **Recommended.** Installs the desktop app with Start Menu shortcut and uninstaller. |
+| **`VectorTrackScript_0.5.zip`** | Optional Vectorworks plug-in — install through Plug-in Manager. |
+
+You do not need both products, but they work well together.
+
+**What's new:** [`VectorTrack 0.5/CHANGELOG.md`](VectorTrack%200.5/CHANGELOG.md)
 
 ---
 
-## Products
+## What you get
 
-Two installs, same problem domain. Use either one or both.
-
-| Product | Install target | Docs |
-|---------|----------------|------|
-| **VectorTrack** | Windows 10+ desktop | [`VectorTrack 0.5/README.md`](VectorTrack%200.5/README.md) |
-| **VectorTrackScript** | Vectorworks plug-in (2025 / 2026 tested) | [`VectorTrackScript 0.5/README.md`](VectorTrackScript%200.5/README.md) |
-
-**VectorTrack** watches open Vectorworks documents, tracks active vs idle time, stores sessions locally, and exports PDF reports.
-
-**VectorTrackScript** opens a summary dialog inside Vectorworks for the file you have open — sessions, rates, budget, and copy-to-clipboard for billing.
+| Product | Where it runs | Best for |
+|---------|---------------|----------|
+| **VectorTrack** | Windows desktop (background + system tray) | Automatic tracking of open Vectorworks files, idle time, projects, sessions, and PDF reports |
+| **VectorTrackScript** | Inside Vectorworks (menu command) | Quick time summary for the file you have open — sessions, rates, budget, copy-to-clipboard |
 
 Neither product requires the other.
 
 ---
 
-## 0.5.0 beta — changes
+## Features (0.5 beta)
 
-- Repository cleanup: legacy code on `archive` branch; `main` is current source only
-- Open Files shows **project names**; **project numbers optional** on create
-- Restored latest v4 feature work (session explorer, sync, session aggregator)
-- Installer: `VectorTrack-0.5.0-Setup.exe`
-
-Full history: [`VectorTrack 0.5/CHANGELOG.md`](VectorTrack%200.5/CHANGELOG.md)
-
----
-
-## Quick start
-
-**Desktop app** — build from [`VectorTrack 0.5/`](VectorTrack%200.5/) or download `VectorTrack 0.5/release/VectorTrack-0.5.0-Setup.exe`.
-
-**Vectorworks plug-in** — follow [`VectorTrackScript 0.5/README.md`](VectorTrackScript%200.5/README.md). Register the `.vsm` wrapper once in Plug-in Manager; Python sources ship in-repo.
+- **Automatic tracking** — detects open Vectorworks documents and distinguishes active vs idle time
+- **Multi-file support** — per-file rates and settings when several drawings are open
+- **Projects** — organize work by project name (project numbers are optional)
+- **Session explorer** — browse, edit, and aggregate recorded sessions
+- **PDF reports** — export billing-ready summaries
+- **Light / dark theme**
+- **Optional cross-machine sync** — merge logs through a cloud-synced folder you choose (Google Drive, Dropbox, etc.); off by default
+- **VectorTrackScript** — in-Vectorworks dialog for the current document’s log data
 
 ---
 
-## Repository layout (`main`)
+## Install — VectorTrack (desktop)
 
-| Path | Contents |
-|------|----------|
-| `VectorTrack 0.5/` | PyQt6 desktop app source |
-| `VectorTrack 0.5/release/` | Portable `VectorTrack.exe` + `VectorTrack-0.5.0-Setup.exe` |
-| `VectorTrackScript 0.5/` | In-Vectorworks Python plug-in source |
+1. Download **`VectorTrack-0.5.0-Setup.exe`** from [Latest Release](https://github.com/Paragonlivedesign/VectorTrack/releases/latest).
+2. Run the installer. If SmartScreen appears, click **More info**, then **Run anyway**.
+3. Optionally check **Create a desktop shortcut** during setup.
+4. Launch **VectorTrack** from the Start Menu. The app runs in the background and appears in the system tray.
 
-Older code: check out the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.
-
----
-
-## Requirements
-
-| Component | Requirement |
-|-----------|-------------|
-| VectorTrack | Windows 10 or later |
-| VectorTrack (dev) | Python 3.10+, dependencies in `VectorTrack 0.5/requirements.txt` |
-| VectorTrackScript | Vectorworks with Python scripting (2025 / 2026 verified) |
+On first launch the app creates your local data folder and begins monitoring when Vectorworks is in use.
 
 ---
 
-## Build (developers)
+## Install — VectorTrackScript (Vectorworks)
 
-```powershell
-# Desktop app
-cd "VectorTrack 0.5"
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\python -m vectortrack
+1. Download **`VectorTrackScript_0.5.zip`** from the same Release page.
+2. In Vectorworks: **Tools → Plug-ins → Plug-in Manager → Third-party Plug-ins → Install…** and select the zip.
+3. If installing manually, copy all files to:
+   ```
+   %APPDATA%\Nemetschek\Vectorworks\<year>\Plug-ins\VectorTrackScript 0.5\
+   ```
+4. Register the menu command once in Plug-in Manager if prompted (paste `VSM_WRAPPER.py`; name must be **`VectorTrackScript 0.5`**).
 
-# Package desktop app + installer
-.\build.ps1 -WithInstaller
+More detail: [`VectorTrackScript 0.5/README.md`](VectorTrackScript%200.5/README.md)
 
-# Vectorworks plug-in zip
-cd "..\VectorTrackScript 0.5"
-.\package_plugin.ps1
-```
+---
+
+## Your data
+
+The installer puts the **program** in Program Files. Your **sessions, settings, and backups** are stored separately so they survive app updates.
+
+| What | Typical location |
+|------|------------------|
+| Installed app | `C:\Program Files\Paragon Live Design\VectorTrack\` |
+| Sessions database, settings, backups | `%LOCALAPPDATA%\Paragon\VectorTrack\` |
+| Vectorworks plug-in | `%APPDATA%\Nemetschek\Vectorworks\<year>\Plug-ins\VectorTrackScript 0.5\` |
+
+**Uninstalling** VectorTrack removes the program from Program Files. The uninstaller asks whether to **keep or remove** your data folder — choose **Yes** to keep sessions and settings.
+
+**Portable mode** (advanced): enable **Portable mode** in **Edit → Settings**, or launch with `--portable`, to store data in a `data/` folder next to the executable instead of AppData. Most testers should use the normal installer and leave portable mode off.
+
+**Log files:** support may ask for `logs/vectortrack.log`. That file is written relative to where the app was launched from (often your user profile folder when using the Start Menu shortcut).
+
+---
+
+## Updating
+
+When a new beta is published:
+
+1. Check [Releases](https://github.com/Paragonlivedesign/VectorTrack/releases) or the [changelog](VectorTrack%200.5/CHANGELOG.md).
+2. Download and run the new **Setup.exe** (you can install over the previous version).
+3. Your data in `%LOCALAPPDATA%\Paragon\VectorTrack\` is preserved unless you explicitly remove it during uninstall.
+
+For the Vectorworks plug-in, reinstall the new zip when noted in the release notes.
+
+---
+
+## Support and feedback
+
+Email **Cody@Paragonlivedesign.com** with:
+
+- VectorTrack version ( **Help → About** )
+- Windows version
+- What you expected vs what happened
+- Relevant log excerpt from `logs/vectortrack.log` if applicable
+
+---
+
+## For developers
+
+Build instructions, tests, and the release checklist live in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
 ---
 
 ## License
 
-See [`VectorTrack 0.5/EULA.md`](VectorTrack%200.5/EULA.md). Beta builds may include licensing hooks that are disabled in current test builds.
+See [`VectorTrack 0.5/EULA.md`](VectorTrack%200.5/EULA.md).

@@ -17,6 +17,7 @@ key.dat
 license.json
 build/
 dist/
+VectorTrack 0.5/release/
 *.pkg
 *.pyz
 *.zip
@@ -25,8 +26,5 @@ dist/
 reports/
 *.pdf
 
-# Ignore loose exes except tracked release builds
+# Ignore loose exes (release builds are not committed)
 *.exe
-!release/
-!release/**
-!release/**/*.exe

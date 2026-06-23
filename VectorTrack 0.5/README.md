@@ -1,6 +1,6 @@
-# VectorTrack
+# VectorTrack (desktop app source)
 
-Windows desktop time tracker for Vectorworks.
+Windows desktop time tracker for Vectorworks — source tree for the standalone app.
 
 | | |
 |---|---|
@@ -8,36 +8,9 @@ Windows desktop time tracker for Vectorworks.
 | **Platform** | Windows 10+ |
 | **Publisher** | Paragon Live Design |
 
-Source tree for the standalone app. See the [repository README](../README.md) for release notes.
+**Download and install:** use the Windows installer from **[GitHub Releases](https://github.com/Paragonlivedesign/VectorTrack/releases/latest)** — see the [repository README](../README.md) for user-facing docs.
 
----
-
-## Development
-
-Requires Python 3.10+.
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\python -m vectortrack
-```
-
-**Tests**
-
-```powershell
-$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-.\.venv\Scripts\python -m pytest tests\ -q
-```
-
-**Package**
-
-```powershell
-.\build.ps1                  # VectorTrack.exe (writes to C:\Temp\VectorTrackBuild)
-.\build.ps1 -WithInstaller   # exe + VectorTrack-0.5.0-Setup.exe
-```
-
-Portable build: `C:\Temp\VectorTrackBuild\VectorTrack\VectorTrack.exe`  
-Installer: `dist\installer\VectorTrack-0.5.0-Setup.exe`
+**Build from source:** see [`docs/DEVELOPMENT.md`](../docs/DEVELOPMENT.md).
 
 ---
 
@@ -49,5 +22,5 @@ Installer: `dist\installer\VectorTrack-0.5.0-Setup.exe`
 
 ## Related
 
-In-Vectorworks plug-in: [`VectorTrackScript 0.5/`](../VectorTrackScript%200.5/)  
-Changelog: [`CHANGELOG.md`](CHANGELOG.md)
+- In-Vectorworks plug-in: [`VectorTrackScript 0.5/`](../VectorTrackScript%200.5/)
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md)

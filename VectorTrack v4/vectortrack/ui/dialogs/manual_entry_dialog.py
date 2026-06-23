@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 class ManualEntryDialog(QDialog):
     def __init__(
         self,
-        projects: list[str],
+        projects: list[tuple[str, str]],
         suggested_file: str = "",
         default_rate: float = 75.0,
         parent: QWidget | None = None,
@@ -33,8 +33,8 @@ class ManualEntryDialog(QDialog):
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.project_combo = QComboBox()
-        for project in projects:
-            self.project_combo.addItem(project)
+        for code, label in projects:
+            self.project_combo.addItem(label, code)
         self.file_input = QLineEdit(suggested_file)
         self.start_input = QDateTimeEdit()
         self.start_input.setCalendarPopup(True)
@@ -66,7 +66,7 @@ class ManualEntryDialog(QDialog):
 
     def values(self) -> dict[str, object]:
         return {
-            "project_id": self.project_combo.currentText().strip(),
+            "project_id": str(self.project_combo.currentData() or ""),
             "file_path": self.file_input.text().strip(),
             "start_time": self.start_input.dateTime().toPyDateTime(),
             "end_time": self.end_input.dateTime().toPyDateTime(),

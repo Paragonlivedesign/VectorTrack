@@ -26,6 +26,7 @@ class OpenFilesTable(QTableWidget):
     HEADERS = ["File", "Project", "Status", "Past", "Live", "Delta", "Rate", "Earned", "Actions"]
     ROLE_FILE_PATH = Qt.ItemDataRole.UserRole
     ROLE_ROW_KIND = Qt.ItemDataRole.UserRole + 1
+    ROLE_PROJECT_CODE = Qt.ItemDataRole.UserRole + 2
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(0, len(self.HEADERS), parent)
@@ -97,6 +98,8 @@ class OpenFilesTable(QTableWidget):
                 font = QFont()
                 font.setBold(row_kind == "active")
                 item.setFont(font)
+            elif col == 1:
+                item.setData(self.ROLE_PROJECT_CODE, str(row_data.get("project_code", "")))
             self._style_item(item, row_kind)
 
         if rebuild_actions or self.cellWidget(row, 8) is None:
@@ -164,3 +167,9 @@ class OpenFilesTable(QTableWidget):
         if item is None:
             return ""
         return str(item.data(self.ROLE_FILE_PATH) or "")
+
+    def project_code_for_row(self, row: int) -> str:
+        item = self.item(row, 1)
+        if item is None:
+            return ""
+        return str(item.data(self.ROLE_PROJECT_CODE) or "")

@@ -41,7 +41,7 @@ class ProjectSummaryTable(QTableWidget):
             for col, value in enumerate(columns):
                 item = QTableWidgetItem(value)
                 if col == 0:
-                    item.setData(Qt.ItemDataRole.UserRole, str(data.get("project", "")))
+                    item.setData(Qt.ItemDataRole.UserRole, str(data.get("project_code") or data.get("project", "")))
                 self.setItem(row, col, item)
             bar = QProgressBar(self)
             bar.setRange(0, 100)

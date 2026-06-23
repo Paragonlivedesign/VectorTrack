@@ -15,3 +15,19 @@ def format_timer_hours(hours: float) -> str:
 
 def format_hours_compact(hours: float) -> str:
     return f"{hours:.2f}h"
+
+
+def project_display_name(name: str, code: str = "") -> str:
+    """Prefer the human-readable project name in UI labels."""
+    cleaned_name = name.strip()
+    cleaned_code = code.strip()
+    return cleaned_name or cleaned_code
+
+
+def resolve_project_code(name: str, code: str = "") -> str:
+    """Return the stored project key; code is optional and falls back to name."""
+    cleaned_name = name.strip()
+    cleaned_code = code.strip()
+    if not cleaned_name:
+        return ""
+    return cleaned_code or cleaned_name

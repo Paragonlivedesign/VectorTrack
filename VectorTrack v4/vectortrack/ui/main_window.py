@@ -46,6 +46,7 @@ from vectortrack.ui.dashboard_strip import DashboardStrip
 from vectortrack.ui.heatmap_widget import HeatmapWidget
 from vectortrack.ui.history_browser import HistoryBrowser
 from vectortrack.ui.hud_window import HUDWindow
+from vectortrack.ui.formatting import project_display_name, resolve_project_code
 from vectortrack.ui.open_files_table import OpenFilesTable
 from vectortrack.ui.project_summary_table import ProjectSummaryTable
 from vectortrack.ui.theme import apply_theme
@@ -461,7 +462,17 @@ class MainWindow(QMainWindow):
     def _project_display(self, project_code: str) -> str:
         if not project_code:
             return self.UNASSIGNED_PROJECT_LABEL
+        project = self.repository.get_project_by_code(project_code)
+        if project is not None:
+            return project_display_name(project.name, project.project_code)
         return project_code
+
+    def _project_options(self) -> list[tuple[str, str]]:
+        options: list[tuple[str, str]] = []
+        for project in self.repository.list_projects():
+            label = project_display_name(project.name, project.project_code)
+            options.append((project.project_code, label))
+        return sorted(options, key=lambda item: item[1].lower())
 
     def _rate_for_project(self, project_code: str) -> float:
         if not project_code:
@@ -715,7 +726,8 @@ class MainWindow(QMainWindow):
         self.project_summary_table.set_rows(
             [
                 {
-                    "project": key,
+                    "project": self._project_display(key),
+                    "project_code": key,
                     **vals,
                     "budget_hours": self._budget_for_project(key),
                 }
@@ -742,7 +754,9 @@ class MainWindow(QMainWindow):
         active_row = next((row for row in rows if row.get("row_kind") == "active"), None)
         active_project = None
         if active_row:
-            active_project = str(active_row.get("project_code") or active_row.get("project") or "")
+            active_project = self._project_display(
+                str(active_row.get("project_code") or active_row.get("project") or "")
+            )
         active_live = float(active_row["live_hours"]) if active_row else 0.0
         active_tracking = bool(active_row.get("is_tracking")) if active_row else False
         self.dashboard_strip.set_metrics(
@@ -840,7 +854,7 @@ class MainWindow(QMainWindow):
         paths = [path for path in file_paths if path]
         if not paths:
             return
-        projects = [project.project_code for project in self.repository.list_projects()]
+        projects = self._project_options()
         if not projects:
             QMessageBox.information(self, "No projects", "Create a project first in Project Editor.")
             return
@@ -860,7 +874,7 @@ class MainWindow(QMainWindow):
         self._tick()
 
     def _open_manual_entry(self, suggested_file: str) -> None:
-        projects = [project.project_code for project in self.repository.list_projects()]
+        projects = self._project_options()
         dialog = ManualEntryDialog(
             projects=projects,
             suggested_file=suggested_file,
@@ -954,12 +968,13 @@ class MainWindow(QMainWindow):
         code = str(values["project_code"]).strip()
         name = str(values["project_name"]).strip()
         client_name = str(values["client_name"]).strip() or "Default"
-        if not code or not name:
-            QMessageBox.warning(self, "Missing values", "Project code and name are required.")
+        resolved_code = resolve_project_code(name, code)
+        if not resolved_code:
+            QMessageBox.warning(self, "Missing values", "Project name is required.")
             return
-        existing = self.repository.get_project_by_code(code)
+        existing = self.repository.get_project_by_code(resolved_code)
         if existing is not None:
-            QMessageBox.warning(self, "Duplicate project", f"A project with code '{code}' already exists.")
+            QMessageBox.warning(self, "Duplicate project", f"A project with key '{resolved_code}' already exists.")
             return
         clients = self.repository.list_clients(active_only=False)
         client = next((c for c in clients if c.name.lower() == client_name.lower()), None)
@@ -968,14 +983,14 @@ class MainWindow(QMainWindow):
         self.repository.create_project(
             BillableProject(
                 client_id=client.id or 0,
-                project_code=code,
+                project_code=resolved_code,
                 name=name,
                 hourly_rate=float(values["hourly_rate"]),
             )
         )
         self._tick()
         self._refresh_history()
-        self.statusBar().showMessage(f"Created project {code}", 3000)
+        self.statusBar().showMessage(f"Created project {name}", 3000)
 
     def _show_about(self) -> None:
         AboutDialog(self).exec()
@@ -1144,9 +1159,7 @@ class MainWindow(QMainWindow):
         file_path = self.open_files_table.file_path_for_row(row) if row >= 0 else ""
         if file_path and file_path not in selected_paths:
             selected_paths = [file_path]
-        project_code = ""
-        if row >= 0 and self.open_files_table.item(row, 1):
-            project_code = self.open_files_table.item(row, 1).text()
+        project_code = self.open_files_table.project_code_for_row(row) if row >= 0 else ""
         menu = QMenu(self)
         if len(selected_paths) > 1:
             menu.addAction(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from vectortrack.models import AliasRule, BillableProject, Client
+from vectortrack.ui.formatting import project_display_name, resolve_project_code
 
 
 class ProjectEditorDialog(QDialog):
@@ -28,13 +30,14 @@ class ProjectEditorDialog(QDialog):
 
         layout = QHBoxLayout(self)
         self.project_list = QListWidget()
-        self.project_list.currentTextChanged.connect(self._load_aliases)
+        self.project_list.currentItemChanged.connect(self._on_project_selected)
         layout.addWidget(self.project_list, 1)
 
         editor = QVBoxLayout()
         form = QFormLayout()
         self.client_name = QLineEdit()
         self.project_code = QLineEdit()
+        self.project_code.setPlaceholderText("Optional")
         self.project_name = QLineEdit()
         self.hourly_rate = QDoubleSpinBox()
         self.hourly_rate.setRange(0, 10000)
@@ -46,7 +49,7 @@ class ProjectEditorDialog(QDialog):
         self.invoice_number.setPlaceholderText("Invoice # when locking")
         self.lock_status = QLabel("Unlocked")
         form.addRow("Client", self.client_name)
-        form.addRow("Project Code", self.project_code)
+        form.addRow("Project Number (optional)", self.project_code)
         form.addRow("Project Name", self.project_name)
         form.addRow("Hourly Rate", self.hourly_rate)
         form.addRow("Invoice #", self.invoice_number)
@@ -81,14 +84,34 @@ class ProjectEditorDialog(QDialog):
         self.project_list.clear()
         projects = self.repository.list_projects(active_only=False)
         for project in projects:
-            self.project_list.addItem(project.project_code)
+            item_text = project_display_name(project.name, project.project_code)
+            self.project_list.addItem(item_text)
+            list_item = self.project_list.item(self.project_list.count() - 1)
+            if list_item is not None:
+                list_item.setData(Qt.ItemDataRole.UserRole, project.project_code)
+
+    def _selected_project_code(self) -> str:
+        current = self.project_list.currentItem()
+        if current is None:
+            return ""
+        return str(current.data(Qt.ItemDataRole.UserRole) or "")
+
+    def _on_project_selected(self, current, _previous) -> None:
+        project_code = ""
+        if current is not None:
+            project_code = str(current.data(Qt.ItemDataRole.UserRole) or "")
+        self._load_aliases(project_code)
 
     def _create_project(self) -> None:
         code = self.project_code.text().strip()
         name = self.project_name.text().strip()
         client_name = self.client_name.text().strip() or "Default"
-        if not code or not name:
-            QMessageBox.warning(self, "Missing values", "Project code and name are required.")
+        resolved_code = resolve_project_code(name, code)
+        if not resolved_code:
+            QMessageBox.warning(self, "Missing values", "Project name is required.")
+            return
+        if self.repository.get_project_by_code(resolved_code) is not None:
+            QMessageBox.warning(self, "Duplicate project", f"A project with key '{resolved_code}' already exists.")
             return
         clients = self.repository.list_clients(active_only=False)
         client = next((c for c in clients if c.name.lower() == client_name.lower()), None)
@@ -97,7 +120,7 @@ class ProjectEditorDialog(QDialog):
         self.repository.create_project(
             BillableProject(
                 client_id=client.id or 0,
-                project_code=code,
+                project_code=resolved_code,
                 name=name,
                 hourly_rate=float(self.hourly_rate.value()),
             )
@@ -128,7 +151,7 @@ class ProjectEditorDialog(QDialog):
             self.alias_list.addItem(rule.alias_pattern)
 
     def _toggle_lock(self) -> None:
-        project_code = self.project_list.currentItem().text() if self.project_list.currentItem() else ""
+        project_code = self._selected_project_code()
         if not project_code:
             QMessageBox.information(self, "No project", "Select a project first.")
             return
@@ -146,7 +169,7 @@ class ProjectEditorDialog(QDialog):
         self._load_aliases(project_code)
 
     def _add_alias(self) -> None:
-        project_code = self.project_list.currentItem().text() if self.project_list.currentItem() else ""
+        project_code = self._selected_project_code()
         alias = self.alias_entry.text().strip()
         if not project_code or not alias:
             QMessageBox.warning(self, "Missing values", "Choose a project and enter alias text.")

@@ -8,7 +8,12 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton
 
 
 class ProjectAssignDialog(QDialog):
-    def __init__(self, file_paths: list[str], projects: list[str], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        file_paths: list[str],
+        projects: list[tuple[str, str]],
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._file_paths = [path for path in file_paths if path]
         self.setWindowTitle("Assign Project")
@@ -25,8 +30,8 @@ class ProjectAssignDialog(QDialog):
                 layout.addWidget(QLabel(f"  … and {len(self._file_paths) - 8} more"))
 
         self.project_combo = QComboBox()
-        for project in projects:
-            self.project_combo.addItem(project)
+        for code, label in projects:
+            self.project_combo.addItem(label, code)
         layout.addWidget(self.project_combo)
 
         buttons = QHBoxLayout()
@@ -44,4 +49,4 @@ class ProjectAssignDialog(QDialog):
         return list(self._file_paths)
 
     def selected_project(self) -> str:
-        return self.project_combo.currentText().strip()
+        return str(self.project_combo.currentData() or "")

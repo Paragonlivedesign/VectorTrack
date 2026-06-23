@@ -1,114 +1,51 @@
 # Changelog
 
-All notable changes to VectorTrack will be documented in this file.
+## [4.0.0-beta] — 2026-06
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Beta release. Invited testers only; installer not code-signed.
 
-## [Unreleased]
+### VectorTrack (desktop)
 
-### Changed
-- Enhanced logging system with improved categorization and readability
-  - Added `[STATUS]` prefix for activity and idle state changes
-  - Added `[SESSION]` prefix for session-related events
-  - Added `[SETTINGS]` prefix for configuration changes
-- Improved log file management
-  - Switched to single log file with daily rotation
-  - Added 7-day log retention policy
-  - Implemented log compression for older files
-- Enhanced session log dialog
-  - Updated to work with new log file format
-  - Improved log entry filtering and display
-  - Added better error handling for log file access
+- Added Windows installer (`VectorTrack-v4-Setup.exe`) via Inno Setup
+- Added optional cross-machine log sync through a user-chosen cloud-synced folder
+- Added `build.ps1` / `build_installer.ps1` packaging chain
+- Added main-window smoke tests for CI
+- PyInstaller build with app icon and explicit service/database hidden imports
 
-## [0.0.1-alpha] - 2024-03-XX
+### VectorTrackScript (plug-in)
 
-### Added
-- Initial application structure and core functionality
-- Automatic Vectorworks process detection and monitoring
-- File tracking system with multi-file support
-- Activity monitoring with idle state detection
-- Project-specific hourly rate configuration
-- Session tracking and logging system
-- Basic license management system
-- Dark and light theme support
-- Custom color theme options
-- Professional PDF report generation
-- Session summary table with real-time updates
-- Application settings management
-- Log viewing and export capabilities
-- Modern UI with hard-edged design
-- Status indicators (Active, Paused, Idle)
-- Basic error handling and logging
+- Added client, budget, and trust-note fields in the summary dialog
+- Added alias-aware parsing for renamed / save-as files
+- Added copy-to-clipboard and cross-machine log sync UI
 
-### Technical
-- PyQt6-based user interface implementation
-- Windows process monitoring system
-- Activity tracking with configurable idle timeout
-- SQLite-based session storage
-- PDF report generation using ReportLab
-- Logging system with rotation and compression
-- Settings persistence using QSettings
+### Shared / infrastructure
 
-### Known Issues
-- Window detection may need refinement for certain Vectorworks configurations
-- Rate changes require pausing active tracking sessions
-- Some UI elements may need additional polish
-- Window detection might miss some edge cases
-- No support for tracking and merging time across different versions of the same file
+- Log snapshot format for multi-machine merge under `{sync_folder}/machines/{machine_id}/{year}/`
+- Settings UI for sync folder, machine ID, and enable/disable
 
-## [1.0.0] - 2024
+### Unchanged from 3.x
 
-### Added
-- PDF report generation using ReportLab
-  - Individual file reports with session history
-  - Master project reports with aggregated data
-  - Professional formatting with tables and styling
-  - Project summaries and statistics
-- Per-file rate configuration
-  - Ability to set different rates for each file
-  - Rate editing restrictions during active tracking
-  - Rate changes only allowed when paused
-- Enhanced session tracking
-  - Detailed session history for each file
-  - Chronological session logs
-  - Improved time accuracy with seconds display
-- Modern user interface improvements
-  - Enhanced dark mode theme
-  - Improved visual feedback
-  - Better layout and spacing
-  - Modern styling for all components
-- Automatic file management
-  - Improved file detection
-  - Better handling of multiple open files
-  - Enhanced file switching capabilities
+- Multi-file Vectorworks detection, idle monitoring, per-file rates
+- SQLite session storage, PDF reports, light/dark themes
 
-### Changed
-- Switched from JSON to PDF for report generation
-- Updated rate input behavior for better control
-- Improved time display format to include seconds
-- Enhanced UI styling and visual feedback
-- Modernized dark mode color scheme
-- Optimized file tracking logic
-- Updated project organization in reports
+### Known limitations
 
-### Fixed
-- Rate input field stability issues
-- UI glitches in dark mode
-- File tracking accuracy improvements
-- Session history display issues
-- Report generation reliability
+- Time is not merged across revisions of the same project (save-as / duplicate filenames)
+- No hosted sync service — folder sync is manual via cloud desktop clients
+- Licensing enforcement disabled in beta builds (`ENFORCE_LICENSING = False`)
+- Windows SmartScreen may block the unsigned installer on first run
 
-## [0.9.0] - 2024 (Beta)
+---
 
-### Added
-- Initial implementation of core features
-- Basic time tracking functionality
-- Simple report generation
-- File detection and monitoring
-- Activity tracking
-- License management system
-- Basic user interface
+## [3.0.0] — 2025
 
-[1.0.0]: https://github.com/yourusername/vectortrack/releases/tag/v1.0.0
-[0.9.0]: https://github.com/yourusername/vectortrack/releases/tag/v0.9.0 
+- Stabilized unit tests; GUI integration tests deferred
+- Session DB persistence fixes
+- File-specific settings dialog
+- PyInstaller packaging; licensing simplified (no WMI dependency)
+
+---
+
+## Earlier versions
+
+Pre-3.0 history is archived in `VectorTrack v0 PY/` and legacy folders in this repository.

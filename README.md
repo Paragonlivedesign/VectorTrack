@@ -1,32 +1,113 @@
-# Vector Track plug in
+# VectorTrack
 
-Two independent v4 products for Vectorworks time tracking:
+Time tracking built around Vectorworks workflow — a Windows desktop app and an in-app menu command that read the same activity logs.
 
-| Product (release) | Source folder | Type |
-|---------|--------|------|
-| **VectorTrack v4** | [`VectorTrack v3/`](VectorTrack%20v3/) | Standalone PyQt6 desktop app |
-| **VectorTrackScript v4** | [`VectorTrackScript v3/`](VectorTrackScript%20v3/) | In-VW menu command (log parser) |
+| | |
+|---|---|
+| **Release** | 4.0.0 beta |
+| **Updated** | June 2026 |
+| **Publisher** | [Paragon Live Design](https://paragonlivedesign.com) |
+| **Support** | Cody@Paragonlivedesign.com |
 
-## Legacy / archive
+> **Beta.** Builds are for internal and invited testers. Windows may show a SmartScreen warning because the installer is not code-signed yet. Expect rough edges; report issues to support.
 
-| Folder / file | Notes |
-|---------------|-------|
-| `VectorTrack v0 PY/` | Original alpha (Feb 2025) — reference only |
-| `TimeTrackerSimple v0.py` | Palette script prototype |
-| `TimeTrackerPro.py` | In-drawing invoice prototype |
-| `V.0/`, `v1.0/` | Earlier script iterations |
+---
+
+## Products
+
+Two installs, same problem domain. Use either one or both.
+
+| Product | Install target | Docs |
+|---------|----------------|------|
+| **VectorTrack** | Windows 10+ desktop | [`VectorTrack v3/README.md`](VectorTrack%20v3/README.md) |
+| **VectorTrackScript** | Vectorworks plug-in (2025 / 2026 tested) | [`VectorTrackScript v3/README.md`](VectorTrackScript%20v3/README.md) |
+
+**VectorTrack** watches open Vectorworks documents, tracks active vs idle time, stores sessions locally, and exports PDF reports.
+
+**VectorTrackScript** opens a summary dialog inside Vectorworks for the file you have open — sessions, rates, budget, and copy-to-clipboard for billing.
+
+Neither product requires the other.
+
+---
+
+## 4.0.0 beta — changes
+
+### VectorTrack (desktop)
+
+- Windows installer (`VectorTrack-v4-Setup.exe`) and portable build
+- Optional cross-machine log sync through a cloud-synced folder (Drive / Dropbox / OneDrive)
+- PyInstaller packaging with explicit imports for services and SQLite
+- Main-window smoke tests in CI
+
+Carried over from 3.x: multi-file detection, idle timeout, per-file rates, SQLite storage, PDF reports, light/dark themes.
+
+### VectorTrackScript (plug-in)
+
+- Client, budget, and trust-note fields in the summary dialog
+- Alias-aware parsing when project files are renamed or saved-as
+- Copy-to-clipboard for invoice and email workflows
+- Cross-machine log sync with in-app **Sync...** settings
+- Project metadata and aliases via `paths.json`
+
+Carried over from 3.x: menu-command `.vsm` install, automatic log path detection by Vectorworks year, per-project rates in `rates.json`.
+
+### Not in 4.0
+
+- Merging time across revisions of the same project file
+- Hosted sync or payment/licensing infrastructure
+
+Full history: [`VectorTrack v3/CHANGELOG.md`](VectorTrack%20v3/CHANGELOG.md)
+
+---
 
 ## Quick start
 
-**Standalone:** See [`VectorTrack v3/README.md`](VectorTrack%20v3/README.md)
+**Desktop app** — build from [`VectorTrack v3/`](VectorTrack%20v3/) or run the packaged beta build if your tester package includes `VectorTrack-v4-Setup.exe`.
 
-**In-VW script:** See [`VectorTrackScript v3/README.md`](VectorTrackScript%20v3/README.md) — requires creating the `.vsm` once in Plug-in Manager.
+**Vectorworks plug-in** — follow [`VectorTrackScript v3/README.md`](VectorTrackScript%20v3/README.md). Register the `.vsm` wrapper once in Plug-in Manager; Python sources ship in-repo.
 
-## Beta builds
+---
 
-When validated, packages move to `_2 Beta Testing/`.
+## Repository layout
 
-Copy targets for this release:
+| Path | Contents |
+|------|----------|
+| `VectorTrack v3/` | PyQt6 desktop app source (v4 codebase; folder name predates the version bump) |
+| `VectorTrackScript v3/` | In-Vectorworks Python plug-in source (v4 codebase) |
+| `VectorTrack v0 PY/` | Original alpha — reference only |
+| `V.0/`, `v1.0/`, `TimeTracker*.py` | Earlier prototypes |
 
-- Standalone app: `_2 Beta Testing/VectorTrack v4/`
-- In-Vectorworks script: `_2 Beta Testing/VectorTrackScript v4/`
+---
+
+## Requirements
+
+| Component | Requirement |
+|-----------|-------------|
+| VectorTrack | Windows 10 or later |
+| VectorTrack (dev) | Python 3.10+, dependencies in `VectorTrack v3/requirements.txt` |
+| VectorTrackScript | Vectorworks with Python scripting (2025 / 2026 verified) |
+
+---
+
+## Build (developers)
+
+```powershell
+# Desktop app
+cd "VectorTrack v3"
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
+.\.venv\Scripts\python -m vectortrack
+
+# Package desktop app + installer
+.\build.ps1 -WithInstaller
+
+# Vectorworks plug-in zip
+cd "..\VectorTrackScript v3"
+.\package_plugin.ps1
+```
+
+---
+
+## License
+
+See [`VectorTrack v3/EULA.md`](VectorTrack%20v3/EULA.md). Beta builds may include licensing hooks that are disabled in current test builds.

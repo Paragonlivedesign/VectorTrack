@@ -50,6 +50,7 @@ from vectortrack.ui.formatting import project_display_name, resolve_project_code
 from vectortrack.ui.open_files_table import OpenFilesTable
 from vectortrack.ui.project_summary_table import ProjectSummaryTable
 from vectortrack.ui.theme import apply_theme
+from vectortrack.ui.app_icon import app_icon
 from vectortrack.ui.tray import VectorTrackTray
 from vectortrack.ui.dialogs.about_dialog import AboutDialog
 from vectortrack.ui.dialogs.backup_restore_dialog import BackupRestoreDialog
@@ -131,6 +132,7 @@ class MainWindow(QMainWindow):
         )
 
         self.setWindowTitle("VectorTrack")
+        self.setWindowIcon(app_icon(self))
         self.setMinimumSize(1000, 680)
         self.resize(1320, 820)
 

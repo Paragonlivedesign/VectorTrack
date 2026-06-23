@@ -21,7 +21,9 @@ from vectortrack.services.backup_service import BackupService
 from vectortrack.services.billing_service import BillingService
 from vectortrack.services.log_service import LogService
 from vectortrack.services.tracking_service import TrackingService
+from vectortrack.single_instance import SingleInstanceGuard
 from vectortrack.ui import MainWindow, apply_theme
+from vectortrack.ui.app_icon import app_icon
 from vectortrack.ui.dialogs.about_dialog import AboutDialog
 from vectortrack.ui.dialogs.donate_dialog import DonateDialog
 from vectortrack.ui.dialogs.manual_entry_dialog import ManualEntryDialog
@@ -131,9 +133,23 @@ def main(argv: list[str] | None = None) -> None:
             Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
         )
     app = QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
+    instance_guard = SingleInstanceGuard()
+    if not instance_guard.acquire():
+        logger.info("Another VectorTrack instance is already running; raising existing window")
+        SingleInstanceGuard.notify_existing()
+        sys.exit(0)
     mode = "dark" if config.ENFORCE_LICENSING and False else "light"
     apply_theme(app, mode=mode)
     window = _init_services()
+
+    def _raise_existing_window() -> None:
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
+        QTimer.singleShot(0, window._ensure_window_on_screen)
+
+    instance_guard.listen(_raise_existing_window)
     window.showNormal()
     window.raise_()
     window.activateWindow()

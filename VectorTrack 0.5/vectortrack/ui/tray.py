@@ -2,28 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
-from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtWidgets import QMenu, QStyle, QSystemTrayIcon, QWidget
-
-
-def _tray_icon(parent: QWidget) -> QIcon:
-    candidates = [
-        Path(__file__).resolve().parents[2] / "assets" / "vectortrack.ico",
-        Path(__file__).resolve().parents[2] / "assets" / "vectortrack.png",
-    ]
-    for path in candidates:
-        if path.exists():
-            icon = QIcon(str(path))
-            if not icon.isNull():
-                return icon
-    return parent.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+from vectortrack.ui.app_icon import app_icon
 
 
 class VectorTrackTray(QSystemTrayIcon):
     def __init__(self, parent: QWidget) -> None:
-        super().__init__(_tray_icon(parent), parent)
+        super().__init__(app_icon(parent), parent)
         self.parent_window = parent
         menu = QMenu(parent)
         show_action = QAction("Show", self)

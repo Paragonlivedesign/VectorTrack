@@ -13,6 +13,8 @@
 
 - Open Files and project summaries show **project names** instead of project numbers
 - **Project numbers are optional** when creating projects (name is required)
+- **Single-instance guard** — launching again raises the existing window instead of opening a second copy
+- Updated application icons (tray, About dialog, window)
 - Installer artifact: `VectorTrack-0.5.0-Setup.exe`
 
 ### VectorTrackScript (plug-in)

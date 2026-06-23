@@ -4,7 +4,7 @@ Time tracking built around Vectorworks workflow — a Windows desktop app and an
 
 | | |
 |---|---|
-| **Release** | 0.4.0 beta |
+| **Release** | 0.5.0 beta |
 | **Updated** | June 2026 |
 | **Publisher** | [Paragon Live Design](https://paragonlivedesign.com) |
 | **Support** | Cody@Paragonlivedesign.com |
@@ -15,7 +15,9 @@ Time tracking built around Vectorworks workflow — a Windows desktop app and an
 
 ## Versioning
 
-Pre-1.0 beta releases use **`0.4.x`** semver (e.g. `0.4.0`, `0.4.1`). Source lives in **`VectorTrack v4/`** and **`VectorTrackScript v4/`** — the `v4` folder name is the product generation; the semver is the release number.
+Pre-1.0 beta releases use **`0.5.x`** semver (e.g. `0.5.0`, `0.5.1`). Active source lives in **`VectorTrack v4/`** and **`VectorTrackScript v4/`** on `main`.
+
+Legacy prototypes (alpha, v0, v1, early TimeTracker scripts) are preserved on the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.
 
 ---
 
@@ -36,31 +38,12 @@ Neither product requires the other.
 
 ---
 
-## 0.4.0 beta — changes
+## 0.5.0 beta — changes
 
-### VectorTrack (desktop)
-
-- Windows installer (`VectorTrack-0.4.0-Setup.exe`) and portable build
-- Optional cross-machine log sync through a cloud-synced folder (Drive / Dropbox / OneDrive)
-- PyInstaller packaging with explicit imports for services and SQLite
-- Main-window smoke tests in CI
-
-Carried over from 3.x: multi-file detection, idle timeout, per-file rates, SQLite storage, PDF reports, light/dark themes.
-
-### VectorTrackScript (plug-in)
-
-- Client, budget, and trust-note fields in the summary dialog
-- Alias-aware parsing when project files are renamed or saved-as
-- Copy-to-clipboard for invoice and email workflows
-- Cross-machine log sync with in-app **Sync...** settings
-- Project metadata and aliases via `paths.json`
-
-Carried over from 3.x: menu-command `.vsm` install, automatic log path detection by Vectorworks year, per-project rates in `rates.json`.
-
-### Not in 0.4
-
-- Merging time across revisions of the same project file
-- Hosted sync or payment/licensing infrastructure
+- Repository cleanup: legacy code on `archive` branch; `main` is current source only
+- Open Files shows **project names**; **project numbers optional** on create
+- Restored latest v4 feature work (session explorer, sync, session aggregator)
+- Installer: `VectorTrack-0.5.0-Setup.exe`
 
 Full history: [`VectorTrack v4/CHANGELOG.md`](VectorTrack%20v4/CHANGELOG.md)
 
@@ -68,20 +51,20 @@ Full history: [`VectorTrack v4/CHANGELOG.md`](VectorTrack%20v4/CHANGELOG.md)
 
 ## Quick start
 
-**Desktop app** — build from [`VectorTrack v4/`](VectorTrack%20v4/) or run the packaged beta build if your tester package includes `VectorTrack-0.4.0-Setup.exe`.
+**Desktop app** — build from [`VectorTrack v4/`](VectorTrack%20v4/) or run the packaged beta build if your tester package includes `VectorTrack-0.5.0-Setup.exe`.
 
 **Vectorworks plug-in** — follow [`VectorTrackScript v4/README.md`](VectorTrackScript%20v4/README.md). Register the `.vsm` wrapper once in Plug-in Manager; Python sources ship in-repo.
 
 ---
 
-## Repository layout
+## Repository layout (`main`)
 
 | Path | Contents |
 |------|----------|
-| `VectorTrack v4/` | PyQt6 desktop app source (current beta) |
-| `VectorTrackScript v4/` | In-Vectorworks Python plug-in source (current beta) |
-| `VectorTrack v0 PY/` | Original alpha — reference only |
-| `V.0/`, `v1.0/`, `TimeTracker*.py` | Earlier prototypes |
+| `VectorTrack v4/` | PyQt6 desktop app source |
+| `VectorTrackScript v4/` | In-Vectorworks Python plug-in source |
+
+Older code: check out the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.
 
 ---
 

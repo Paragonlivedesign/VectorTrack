@@ -4,11 +4,11 @@ Vectorworks menu command — time summary from `Vectorworks Log.txt` for the doc
 
 | | |
 |---|---|
-| **Version** | 0.4.0 beta |
+| **Version** | 0.5.0 beta |
 | **Tested with** | Vectorworks 2025 / 2026 |
 | **Publisher** | Paragon Live Design |
 
-Source tree for the in-Vectorworks plug-in. See the [repository README](../README.md) for 0.4 beta release notes.
+Source tree for the in-Vectorworks plug-in. See the [repository README](../README.md) for release notes.
 
 ---
 
@@ -32,13 +32,9 @@ Register the `.vsm` once in Plug-in Manager (paste [`VSM_WRAPPER.py`](VSM_WRAPPE
 
 ---
 
-## 0.4.0 beta — changes
+## 0.5.0 beta
 
-- Client, budget, and trust-note fields in the summary dialog
-- Alias-aware parsing for renamed / save-as files
-- Copy-to-clipboard for billing
-- Cross-machine log sync (**Sync...** and `paths.json`)
-- Per-project rates in `rates.json`; metadata in `paths.json`
+Aligned with VectorTrack desktop **0.5.0 beta**. See [`VectorTrack v4/CHANGELOG.md`](../VectorTrack%20v4/CHANGELOG.md).
 
 ---
 

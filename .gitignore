@@ -23,3 +23,5 @@ dist/
 *.zip
 *.dll
 *.db
+reports/
+*.pdf

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.0-beta] — 2026-06
+
+### Repository
+
+- Legacy prototypes and alpha code moved to the `archive` branch; `main` is active v4 source only
+- Removed tracked build outputs, databases, and report PDFs from version control
+
+### VectorTrack (desktop)
+
+- Open Files and project summaries show **project names** instead of project numbers
+- **Project numbers are optional** when creating projects (name is required)
+- Installer artifact: `VectorTrack-0.5.0-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.0 beta**
+
+---
+
 ## [0.4.0-beta] — 2026-06
 
 Beta release. Invited testers only; installer not code-signed.
@@ -44,4 +63,4 @@ Semver is **0.4.x** while in beta (not 4.0.0). Source folders: `VectorTrack v4/`
 
 ## Earlier versions
 
-Pre-3.0 history (alpha through 1.x) is archived in `VectorTrack v0 PY/` and legacy folders in the development repository.
+Pre-3.0 history (alpha through 1.x) is on the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 APP_NAME = "VectorTrack"
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 APP_BETA = True
 
 

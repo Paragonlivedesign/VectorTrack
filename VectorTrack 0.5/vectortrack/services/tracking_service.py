@@ -94,7 +94,11 @@ class TrackingService:
         self.activity_monitor.stop()
 
     def set_paused(self, paused: bool) -> None:
+        was_paused = self.is_paused
         self.is_paused = paused
+        if was_paused and not paused and self.current_state is not None:
+            now = datetime.now()
+            self.current_state.last_tick_at = now
 
     def enable_meeting_mode(self, topic: str = "Meeting") -> TrackingState:
         synthetic_path = f"__meeting__/{topic.strip() or 'Meeting'}"

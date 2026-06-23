@@ -181,3 +181,23 @@ def test_manual_pause_blocks_tracking_even_when_idle_disabled():
     svc.tick(now=now + timedelta(seconds=10))
 
     assert svc.current_state.tracked_seconds == 0
+
+
+def test_unpause_resets_tick_clock_and_resumes_tracking():
+    process = FakeProcessMonitor()
+    activity = FakeActivityMonitor(active=True)
+    repo = FakeRepository()
+    svc = TrackingService(process, activity, repo, autosave_seconds=1)
+
+    svc.start()
+    now = datetime.now()
+    svc.set_paused(True)
+    svc.tick(now=now)
+    svc.tick(now=now + timedelta(seconds=5))
+    assert svc.current_state.tracked_seconds == 0
+
+    resume_at = now + timedelta(seconds=5)
+    svc.set_paused(False)
+    svc.tick(now=resume_at + timedelta(seconds=4))
+
+    assert svc.current_state.tracked_seconds >= 4

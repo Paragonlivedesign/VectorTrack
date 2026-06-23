@@ -3,26 +3,32 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+from typing import Any
 
 from loguru import logger
 
 
+def hidden_subprocess_kwargs() -> dict[str, Any]:
+    """Return subprocess kwargs that suppress console windows on Windows."""
+    if sys.platform != "win32":
+        return {}
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if not flags:
+        return {}
+    return {"creationflags": flags}
+
+
 class NotificationService:
-    """Dispatch Windows toast notifications with graceful fallback."""
+    """Dispatch notifications via the tray icon, with a hidden PowerShell fallback."""
 
     def __init__(self, enabled: bool = True, app_name: str = "VectorTrack") -> None:
         self.enabled = enabled
         self.app_name = app_name
-        self._toaster = self._create_toaster()
+        self._tray: Any = None
 
-    @staticmethod
-    def _create_toaster():
-        try:
-            from win10toast import ToastNotifier  # type: ignore
-
-            return ToastNotifier()
-        except Exception:
-            return None
+    def set_tray(self, tray: Any) -> None:
+        self._tray = tray
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = bool(enabled)
@@ -60,18 +66,23 @@ class NotificationService:
     def notify(self, title: str, message: str) -> None:
         if not self.enabled:
             return
-        if self._toaster is not None:
-            try:
-                self._toaster.show_toast(
-                    f"{self.app_name} - {title}",
-                    message,
-                    duration=5,
-                    threaded=True,
-                )
-                return
-            except Exception as exc:
-                logger.debug(f"win10toast notify failed, using fallback: {exc}")
+        if self._notify_tray(title, message):
+            return
         self._notify_powershell(title, message)
+
+    def _notify_tray(self, title: str, message: str) -> bool:
+        tray = self._tray
+        if tray is None:
+            return False
+        try:
+            if hasattr(tray, "isVisible") and not tray.isVisible():
+                return False
+            # MessageIcon.Information == 1
+            tray.showMessage(f"{self.app_name} - {title}", message, 1, 5000)
+            return True
+        except Exception as exc:
+            logger.debug(f"Tray notification failed, using fallback: {exc}")
+            return False
 
     def _notify_powershell(self, title: str, message: str) -> None:
         escaped_title = title.replace("'", "''")
@@ -81,7 +92,7 @@ class NotificationService:
             "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null;"
             "$template = @\""
             "<toast><visual><binding template='ToastGeneric'>"
-            f"<text>{escaped_title}</text><text>{escaped_message}</text>"
+            f"<text>{self.app_name} - {escaped_title}</text><text>{escaped_message}</text>"
             "</binding></visual></toast>"
             "\"@;"
             "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument;"
@@ -92,10 +103,20 @@ class NotificationService:
         )
         try:
             subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-WindowStyle",
+                    "Hidden",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script,
+                ],
                 check=False,
                 capture_output=True,
                 text=True,
+                **hidden_subprocess_kwargs(),
             )
         except Exception as exc:  # pragma: no cover - best effort fallback
             logger.info(f"{self.app_name} notification [{title}]: {message}")

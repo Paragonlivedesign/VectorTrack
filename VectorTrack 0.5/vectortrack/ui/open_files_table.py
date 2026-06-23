@@ -20,10 +20,14 @@ from vectortrack.ui.formatting import format_hours_compact, format_timer_hours
 class OpenFilesTable(QTableWidget):
     assign_project_requested = pyqtSignal(str)
     assign_projects_requested = pyqtSignal(list)
+    edit_project_requested = pyqtSignal(str)
     manual_entry_requested = pyqtSignal(str)
     view_sessions_requested = pyqtSignal(str)
+    resume_tracking_requested = pyqtSignal(str)
 
     HEADERS = ["File", "Project", "Status", "Past", "Live", "Delta", "Rate", "Earned", "Actions"]
+    LIVE_COLUMN = 4
+    STATUS_COLUMN = 2
     ROLE_FILE_PATH = Qt.ItemDataRole.UserRole
     ROLE_ROW_KIND = Qt.ItemDataRole.UserRole + 1
     ROLE_PROJECT_CODE = Qt.ItemDataRole.UserRole + 2
@@ -38,6 +42,7 @@ class OpenFilesTable(QTableWidget):
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.horizontalHeader().setStretchLastSection(True)
         self.cellDoubleClicked.connect(self._on_double_click)
+        self.cellClicked.connect(self._on_cell_clicked)
 
     def update_rows(self, rows: Iterable[dict[str, object]]) -> None:
         rows_list = list(rows)
@@ -100,6 +105,10 @@ class OpenFilesTable(QTableWidget):
                 item.setFont(font)
             elif col == 1:
                 item.setData(self.ROLE_PROJECT_CODE, str(row_data.get("project_code", "")))
+            elif col == self.LIVE_COLUMN and row_kind == "active" and not is_tracking:
+                item.setToolTip("Click to resume tracking for this file")
+            elif col == self.LIVE_COLUMN:
+                item.setToolTip("")
             self._style_item(item, row_kind)
 
         if rebuild_actions or self.cellWidget(row, 8) is None:
@@ -157,10 +166,24 @@ class OpenFilesTable(QTableWidget):
                 paths.append(file_path)
         return paths
 
-    def _on_double_click(self, row: int, _column: int) -> None:
+    def _on_cell_clicked(self, row: int, column: int) -> None:
+        if column not in (self.STATUS_COLUMN, self.LIVE_COLUMN):
+            return
+        item = self.item(row, 0)
+        if item is None or str(item.data(self.ROLE_ROW_KIND) or "") != "active":
+            return
         file_path = self.file_path_for_row(row)
         if file_path:
-            self.view_sessions_requested.emit(file_path)
+            self.resume_tracking_requested.emit(file_path)
+
+    def _on_double_click(self, row: int, column: int) -> None:
+        file_path = self.file_path_for_row(row)
+        if not file_path:
+            return
+        if column == 1:
+            self.edit_project_requested.emit(file_path)
+            return
+        self.view_sessions_requested.emit(file_path)
 
     def file_path_for_row(self, row: int) -> str:
         item = self.item(row, 0)

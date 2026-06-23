@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QProgressBar, QTableWidget, QTableWidgetItem, QWidge
 
 class ProjectSummaryTable(QTableWidget):
     view_sessions_requested = pyqtSignal(str)
+    edit_project_requested = pyqtSignal(str)
 
     HEADERS = ["Project", "Rate", "Tracked", "Billable", "Budget", "Progress"]
 
@@ -78,8 +79,12 @@ class ProjectSummaryTable(QTableWidget):
             if item is not None:
                 item.setBackground(brush)
 
-    def _on_double_click(self, row: int, _column: int) -> None:
+    def _on_double_click(self, row: int, column: int) -> None:
         project_code = self.project_code_for_row(row)
-        if project_code:
-            self.view_sessions_requested.emit(project_code)
+        if not project_code:
+            return
+        if column == 0:
+            self.edit_project_requested.emit(project_code)
+            return
+        self.view_sessions_requested.emit(project_code)
 

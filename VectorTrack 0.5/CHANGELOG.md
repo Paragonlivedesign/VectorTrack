@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.4-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Notifications** — tray balloon toasts (no flash console window); hidden PowerShell fallback
+- **Project sync** — assigned/orphan project codes auto-register in Project Editor
+- **Open Files** — double-click project column to edit; click Status/Live on active row to resume tracking
+- **Pause/resume** — clearer menu label; resume clears idle block without counting idle gap as billable time
+- **Edit Project** in Open Files and Project Summary context menus
+- Installer artifact: `VectorTrack-0.5.4-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.4 beta**
+
+---
+
 ## [0.5.3-beta] — 2026-06
 
 ### VectorTrack (desktop)

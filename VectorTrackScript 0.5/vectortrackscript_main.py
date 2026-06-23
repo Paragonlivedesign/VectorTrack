@@ -6,7 +6,7 @@ import importlib
 import traceback
 
 PLUGIN_NAME = 'VectorTrackScript'
-PLUGIN_VERSION = '0.5.3'
+PLUGIN_VERSION = '0.5.4'
 PLUGIN_BETA = True
 
 

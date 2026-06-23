@@ -43,6 +43,7 @@ from vectortrack.services.report_service import ReportService
 from vectortrack.services.autostart import set_enabled as set_autostart_enabled
 from vectortrack.services.hotkey_service import HotkeyService
 from vectortrack.services.notification_service import NotificationService
+from vectortrack.services.project_sync import sync_orphan_project_codes
 from vectortrack.services.tracking_service import TrackingService
 from vectortrack.ui.clients_tab import ClientsTab
 from vectortrack.ui.dashboard_strip import DashboardStrip
@@ -130,6 +131,7 @@ class MainWindow(QMainWindow):
         self.session_aggregator = SessionAggregator(self.repository)
         self.log_cache: dict[str, dict[str, float | datetime]] = {}
         self.file_project_overrides: dict[str, str] = self._load_project_overrides()
+        self._sync_orphan_project_assignments()
         self._last_log_sync = datetime.min
         self._last_rows: list[dict[str, object]] = []
         self._is_quitting = False
@@ -156,6 +158,7 @@ class MainWindow(QMainWindow):
 
         self.tray = VectorTrackTray(self)
         self.tray.show()
+        self.notification_service.set_tray(self.tray)
         self.hud = HUDWindow(self)
         self.hud.hide()
 
@@ -177,9 +180,12 @@ class MainWindow(QMainWindow):
         self.history_browser.refresh_requested.connect(self._refresh_history)
         self.open_files_table.assign_project_requested.connect(self._assign_project)
         self.open_files_table.assign_projects_requested.connect(self._assign_projects)
+        self.open_files_table.edit_project_requested.connect(self._edit_project_for_file)
         self.open_files_table.manual_entry_requested.connect(self._open_manual_entry)
         self.open_files_table.view_sessions_requested.connect(self._open_session_explorer_for_file)
+        self.open_files_table.resume_tracking_requested.connect(self._resume_tracking_for_file)
         self.project_summary_table.view_sessions_requested.connect(self._open_session_explorer_for_project)
+        self.project_summary_table.edit_project_requested.connect(self._show_project_editor)
         self.heatmap_widget.day_clicked.connect(self._jump_history_to_day)
         self.clients_tab.edit_client_requested.connect(self._open_client_editor)
         self.clients_tab.statement_requested.connect(self._generate_client_statement)
@@ -284,6 +290,7 @@ class MainWindow(QMainWindow):
         self.pause_action.setCheckable(True)
         self.pause_action.setChecked(self.tracking_service.is_paused)
         self.pause_action.toggled.connect(self._set_pause_state)
+        self._update_pause_action_label()
 
         self.meeting_action = QAction("Start 30m Meeting", self)
         self.meeting_action.setShortcut("Ctrl+M")
@@ -509,6 +516,27 @@ class MainWindow(QMainWindow):
     def _save_project_overrides(self) -> None:
         self.settings.setValue("file_project_overrides", json.dumps(self.file_project_overrides))
 
+    def _sync_orphan_project_assignments(self) -> None:
+        codes: set[str] = set()
+        for code in self.file_project_overrides.values():
+            if code:
+                codes.add(str(code).strip())
+        for session in self.repository.list_sessions(include_open=True, limit=15000):
+            if session.project_id:
+                codes.add(str(session.project_id).strip())
+        created = sync_orphan_project_codes(
+            self.repository,
+            codes,
+            default_rate=float(self.default_rate),
+        )
+        if created:
+            names = ", ".join(created[:3])
+            suffix = f" (+{len(created) - 3} more)" if len(created) > 3 else ""
+            self.statusBar().showMessage(
+                f"Registered project(s) in Project Editor: {names}{suffix}",
+                5000,
+            )
+
     def _active_log_paths(self) -> list[str]:
         extra_paths = [
             str(source.get("source", "")).strip()
@@ -697,6 +725,28 @@ class MainWindow(QMainWindow):
                 add_path(path)
         return ordered
 
+    def _tracked_file_path(self) -> str:
+        current = self.tracking_service.current_state
+        return current.file_path if current else ""
+
+    def _status_for_row(self, file_path: str, row_kind: str) -> str:
+        is_tracked = self._tracked_file_path() == file_path
+        if row_kind == "active":
+            if is_tracked:
+                if self.tracking_service.is_paused:
+                    return "Active (Paused)"
+                if self.tracking_service.is_idle_blocked(file_path):
+                    return "Active (Idle)"
+            return "Active"
+        if row_kind == "open":
+            if is_tracked:
+                if self.tracking_service.is_paused:
+                    return "Paused"
+                if self.tracking_service.is_idle_blocked(file_path):
+                    return "Open (Idle)"
+            return "Open"
+        return "Recent"
+
     def _row_for_file(
         self,
         file_path: str,
@@ -718,22 +768,12 @@ class MainWindow(QMainWindow):
             )
         )
         if row_kind == "active":
-            status = "Active"
-            if state is self.tracking_service.current_state:
-                if self.tracking_service.is_paused:
-                    status = "Active (Paused)"
-                elif self.tracking_service.is_idle_blocked(state.file_path):
-                    status = "Active (Idle)"
+            status = self._status_for_row(file_path, row_kind)
         elif is_open:
-            status = "Open"
-            if state is self.tracking_service.current_state:
-                if self.tracking_service.is_paused:
-                    status = "Paused"
-                elif self.tracking_service.is_idle_blocked(state.file_path):
-                    status = "Open (Idle)"
+            status = self._status_for_row(file_path, "open")
         else:
             status = "Recent"
-        is_tracking = self._is_live_tracking(state, row_kind)
+        is_tracking = self._is_live_tracking(file_path, row_kind)
         return {
             "file_path": file_path,
             "file_name": os.path.basename(file_path),
@@ -749,16 +789,15 @@ class MainWindow(QMainWindow):
             "is_tracking": is_tracking,
         }
 
-    def _is_live_tracking(self, state, row_kind: str) -> bool:
-        if state is None:
-            return False
-        if state is not self.tracking_service.current_state:
+    def _is_live_tracking(self, file_path: str, row_kind: str) -> bool:
+        current = self.tracking_service.current_state
+        if current is None or current.file_path != file_path:
             return False
         if row_kind not in ("active", "open"):
             return False
-        if self.tracking_service.meeting_topic or state.meeting_mode:
+        if self.tracking_service.meeting_topic or current.meeting_mode:
             return True
-        return self.tracking_service.should_count_time(state.file_path)
+        return self.tracking_service.should_count_time(file_path)
 
     def _rows_from_tracking(self) -> list[dict[str, object]]:
         windows = self.process_monitor.vectorworks_windows
@@ -885,7 +924,7 @@ class MainWindow(QMainWindow):
         row_kind = str(row.get("row_kind", "")) if row else ""
         is_tracking = bool(row.get("is_tracking")) if row else False
         if not is_tracking:
-            is_tracking = self._is_live_tracking(current, row_kind)
+            is_tracking = self._is_live_tracking(current.file_path, str(row.get("row_kind", "")) if row else "active")
         tracking_status = self._tracking_status_for_state(current)
         project_name = str(row.get("project_code") or row.get("project") or current.project_id) if row else current.project_id
         self.hud.set_stats(
@@ -962,6 +1001,7 @@ class MainWindow(QMainWindow):
         paths = [path for path in file_paths if path]
         if not paths:
             return
+        self._sync_orphan_project_assignments()
         projects = self._project_options()
         if not projects:
             QMessageBox.information(self, "No projects", "Create a project first in Project Editor.")
@@ -979,7 +1019,19 @@ class MainWindow(QMainWindow):
                 state.project_id = project_code
                 self.repository.update_session_duration(state, 0.0)
         self._save_project_overrides()
+        self._sync_orphan_project_assignments()
         self._tick()
+
+    def _edit_project_for_file(self, file_path: str) -> None:
+        if not file_path:
+            return
+        state = self.tracking_service.states_by_file.get(file_path)
+        project_code = self._project_for_file(file_path, state)
+        if not project_code:
+            self._assign_project(file_path)
+            return
+        self._sync_orphan_project_assignments()
+        self._show_project_editor(project_code)
 
     def _open_manual_entry(self, suggested_file: str) -> None:
         projects = self._project_options()
@@ -1070,11 +1122,16 @@ class MainWindow(QMainWindow):
         self._tick()
 
     def _show_project_editor(self, project_code: str | None = None) -> None:
+        code = (project_code or "").strip()
+        if code:
+            self._sync_orphan_project_assignments()
         ProjectEditorDialog(
             self.repository,
             self,
-            initial_project_code=project_code,
+            initial_project_code=code or None,
         ).exec()
+        self._sync_orphan_project_assignments()
+        self._tick()
         self._refresh_history()
 
     def _create_new_project(self) -> None:
@@ -1182,8 +1239,32 @@ class MainWindow(QMainWindow):
     def _contact_support(self) -> None:
         QDesktopServices.openUrl(QUrl(f"mailto:{self.SUPPORT_EMAIL}"))
 
+    def _update_pause_action_label(self) -> None:
+        paused = self.tracking_service.is_paused
+        self.pause_action.blockSignals(True)
+        self.pause_action.setChecked(paused)
+        self.pause_action.blockSignals(False)
+        self.pause_action.setText("Resume Tracking" if paused else "Pause Tracking")
+
+    def _clear_tracking_blocks(self) -> None:
+        self.activity_monitor.bump_activity()
+        self._idle_notified = False
+
+    def _resume_tracking_for_file(self, file_path: str) -> None:
+        if not file_path:
+            return
+        if self.tracking_service.is_paused:
+            self.pause_action.setChecked(False)
+            return
+        self._clear_tracking_blocks()
+        self.statusBar().showMessage("Tracking resumed", 2500)
+        self._tick()
+
     def _set_pause_state(self, paused: bool) -> None:
         self.tracking_service.set_paused(paused)
+        if not paused:
+            self._clear_tracking_blocks()
+        self._update_pause_action_label()
         self.statusBar().showMessage("Tracking paused" if paused else "Tracking resumed", 2500)
         self._tick()
 
@@ -1282,6 +1363,11 @@ class MainWindow(QMainWindow):
         else:
             menu.addAction("Assign Project...", lambda: self._assign_project(selected_paths[0]))
         if len(selected_paths) == 1:
+            if project_code:
+                menu.addAction(
+                    "Edit Project...",
+                    lambda: self._show_project_editor(project_code),
+                )
             menu.addAction(
                 "View Sessions...",
                 lambda: self._open_session_explorer_for_file(selected_paths[0]),
@@ -1309,6 +1395,7 @@ class MainWindow(QMainWindow):
         project_code = self.project_summary_table.project_code_for_row(row)
         menu.addAction("New Project...", self._create_new_project)
         menu.addSeparator()
+        menu.addAction("Edit Project...", lambda: self._show_project_editor(project_code))
         menu.addAction("View Sessions...", lambda: self._open_session_explorer_for_project(project_code))
         menu.addAction("Generate Project Report", lambda: self._open_report_dialog(report_type="project", project_code=project_code))
         menu.addAction(

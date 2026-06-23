@@ -93,7 +93,7 @@ The installer puts the **program** in Program Files. Your **sessions, settings, 
 
 **Portable mode** (advanced): enable **Portable mode** in **Edit → Settings**, or launch with `--portable`, to store data in a `data/` folder next to the executable instead of AppData. Most testers should use the normal installer and leave portable mode off.
 
-**Log files:** support may ask for `logs/vectortrack.log`. That file is written relative to where the app was launched from (often your user profile folder when using the Start Menu shortcut).
+**Log files:** `%LOCALAPPDATA%\Paragon\VectorTrack\logs\vectortrack.log`
 
 ---
 
@@ -116,7 +116,7 @@ Email **Cody@Paragonlivedesign.com** with:
 - VectorTrack version ( **Help → About** )
 - Windows version
 - What you expected vs what happened
-- Relevant log excerpt from `logs/vectortrack.log` if applicable
+- Relevant log excerpt from `%LOCALAPPDATA%\Paragon\VectorTrack\logs\vectortrack.log` if applicable
 
 ---
 

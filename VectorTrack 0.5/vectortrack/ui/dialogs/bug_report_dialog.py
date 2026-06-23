@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from urllib.parse import quote
 
 from PyQt6.QtCore import QUrl
@@ -19,6 +18,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from vectortrack import config
 
 
 class BugReportDialog(QDialog):
@@ -55,8 +56,8 @@ class BugReportDialog(QDialog):
         subject = self.subject_edit.text().strip() or "VectorTrack Bug Report"
         body = self.body_edit.toPlainText().strip()
         if self.attach_logs_check.isChecked():
-            logs_dir = Path("logs").resolve()
-            body = f"{body}\n\nLogs folder:\n{logs_dir}\n(Please attach relevant log files.)".strip()
+            logs_dir = config.logs_dir()
+            body = f"{body}\n\nLogs folder:\n{logs_dir}\n(Please attach vectortrack.log from that folder.)".strip()
         url = f"mailto:{self.SUPPORT_EMAIL}?subject={quote(subject)}&body={quote(body)}"
         if not QDesktopServices.openUrl(QUrl(url)):
             QMessageBox.warning(self, "Unable to open email", "No mail handler was available.")

@@ -53,7 +53,7 @@ class BackupRestoreDialog(QDialog):
         targets = [
             str(data_dir / config.DEFAULT_DB_FILENAME),
             "reports",
-            "logs",
+            str(config.logs_dir()),
         ]
         try:
             backup_path = self.service.create_backup(targets, label="vectortrack")

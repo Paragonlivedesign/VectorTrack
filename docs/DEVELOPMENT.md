@@ -153,7 +153,7 @@ Adjust paths and notes as needed.
 | Installed (default) | `%ProgramFiles%\Paragon Live Design\VectorTrack\` | `%LOCALAPPDATA%\Paragon\VectorTrack\` |
 | Portable mode | N/A (run from chosen folder) | `data/` next to `VectorTrack.exe` |
 
-User data includes `vectortrack.db`, settings, backups, and related JSON files. Runtime file logs write to a `logs/` folder relative to the working directory when the app starts.
+User data includes `vectortrack.db`, settings, backups, and related JSON files. Log files are stored under `{data_dir}/logs/`.
 
 ---
 

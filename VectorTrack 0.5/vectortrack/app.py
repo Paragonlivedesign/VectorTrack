@@ -6,7 +6,6 @@ import argparse
 import platform
 import sqlite3
 import sys
-from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import QApplication
@@ -44,8 +43,7 @@ __all__ = [
 
 
 def _configure_logging() -> None:
-    logs_dir = Path("logs")
-    logs_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = config.logs_dir()
     logger.remove()
     logger.add(
         str(logs_dir / "vectortrack.log"),

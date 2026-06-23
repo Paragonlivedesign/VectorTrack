@@ -76,6 +76,13 @@ def resolve_data_dir() -> Path:
     return data_dir
 
 
+def logs_dir() -> Path:
+    """Resolve and create the writable application log directory."""
+    target = resolve_data_dir() / "logs"
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def db_path() -> Path:
     """Full path to the v4 SQLite database file."""
     return resolve_data_dir() / DEFAULT_DB_FILENAME

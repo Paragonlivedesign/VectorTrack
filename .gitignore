@@ -8,7 +8,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Runtime artifacts and build outputs
+# Runtime artifacts and local build outputs
 logs/
 *.log
 sessions.db
@@ -17,7 +17,6 @@ key.dat
 license.json
 build/
 dist/
-*.exe
 *.pkg
 *.pyz
 *.zip
@@ -25,3 +24,8 @@ dist/
 *.db
 reports/
 *.pdf
+
+# Ignore loose exes except tracked release builds
+*.exe
+!release/
+!release/**

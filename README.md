@@ -15,7 +15,7 @@ Time tracking built around Vectorworks workflow — a Windows desktop app and an
 
 ## Versioning
 
-Pre-1.0 beta releases use **`0.5.x`** semver (e.g. `0.5.0`, `0.5.1`). Active source lives in **`VectorTrack v4/`** and **`VectorTrackScript v4/`** on `main`.
+Pre-1.0 beta releases use **`0.5.x`** semver (e.g. `0.5.0`, `0.5.1`). Active source lives in **`VectorTrack 0.5/`** and **`VectorTrackScript 0.5/`** on `main`.
 
 Legacy prototypes (alpha, v0, v1, early TimeTracker scripts) are preserved on the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.
 
@@ -27,8 +27,8 @@ Two installs, same problem domain. Use either one or both.
 
 | Product | Install target | Docs |
 |---------|----------------|------|
-| **VectorTrack** | Windows 10+ desktop | [`VectorTrack v4/README.md`](VectorTrack%20v4/README.md) |
-| **VectorTrackScript** | Vectorworks plug-in (2025 / 2026 tested) | [`VectorTrackScript v4/README.md`](VectorTrackScript%20v4/README.md) |
+| **VectorTrack** | Windows 10+ desktop | [`VectorTrack 0.5/README.md`](VectorTrack%200.5/README.md) |
+| **VectorTrackScript** | Vectorworks plug-in (2025 / 2026 tested) | [`VectorTrackScript 0.5/README.md`](VectorTrackScript%200.5/README.md) |
 
 **VectorTrack** watches open Vectorworks documents, tracks active vs idle time, stores sessions locally, and exports PDF reports.
 
@@ -45,15 +45,15 @@ Neither product requires the other.
 - Restored latest v4 feature work (session explorer, sync, session aggregator)
 - Installer: `VectorTrack-0.5.0-Setup.exe`
 
-Full history: [`VectorTrack v4/CHANGELOG.md`](VectorTrack%20v4/CHANGELOG.md)
+Full history: [`VectorTrack 0.5/CHANGELOG.md`](VectorTrack%200.5/CHANGELOG.md)
 
 ---
 
 ## Quick start
 
-**Desktop app** — build from [`VectorTrack v4/`](VectorTrack%20v4/) or run the packaged beta build if your tester package includes `VectorTrack-0.5.0-Setup.exe`.
+**Desktop app** — build from [`VectorTrack 0.5/`](VectorTrack%200.5/) or download `VectorTrack 0.5/release/VectorTrack-0.5.0-Setup.exe`.
 
-**Vectorworks plug-in** — follow [`VectorTrackScript v4/README.md`](VectorTrackScript%20v4/README.md). Register the `.vsm` wrapper once in Plug-in Manager; Python sources ship in-repo.
+**Vectorworks plug-in** — follow [`VectorTrackScript 0.5/README.md`](VectorTrackScript%200.5/README.md). Register the `.vsm` wrapper once in Plug-in Manager; Python sources ship in-repo.
 
 ---
 
@@ -61,8 +61,9 @@ Full history: [`VectorTrack v4/CHANGELOG.md`](VectorTrack%20v4/CHANGELOG.md)
 
 | Path | Contents |
 |------|----------|
-| `VectorTrack v4/` | PyQt6 desktop app source |
-| `VectorTrackScript v4/` | In-Vectorworks Python plug-in source |
+| `VectorTrack 0.5/` | PyQt6 desktop app source |
+| `VectorTrack 0.5/release/` | Portable `VectorTrack.exe` + `VectorTrack-0.5.0-Setup.exe` |
+| `VectorTrackScript 0.5/` | In-Vectorworks Python plug-in source |
 
 Older code: check out the [`archive`](https://github.com/Paragonlivedesign/VectorTrack/tree/archive) branch.
 
@@ -73,7 +74,7 @@ Older code: check out the [`archive`](https://github.com/Paragonlivedesign/Vecto
 | Component | Requirement |
 |-----------|-------------|
 | VectorTrack | Windows 10 or later |
-| VectorTrack (dev) | Python 3.10+, dependencies in `VectorTrack v4/requirements.txt` |
+| VectorTrack (dev) | Python 3.10+, dependencies in `VectorTrack 0.5/requirements.txt` |
 | VectorTrackScript | Vectorworks with Python scripting (2025 / 2026 verified) |
 
 ---
@@ -82,7 +83,7 @@ Older code: check out the [`archive`](https://github.com/Paragonlivedesign/Vecto
 
 ```powershell
 # Desktop app
-cd "VectorTrack v4"
+cd "VectorTrack 0.5"
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 .\.venv\Scripts\python -m vectortrack
@@ -91,7 +92,7 @@ python -m venv .venv
 .\build.ps1 -WithInstaller
 
 # Vectorworks plug-in zip
-cd "..\VectorTrackScript v4"
+cd "..\VectorTrackScript 0.5"
 .\package_plugin.ps1
 ```
 
@@ -99,4 +100,4 @@ cd "..\VectorTrackScript v4"
 
 ## License
 
-See [`VectorTrack v4/EULA.md`](VectorTrack%20v4/EULA.md). Beta builds may include licensing hooks that are disabled in current test builds.
+See [`VectorTrack 0.5/EULA.md`](VectorTrack%200.5/EULA.md). Beta builds may include licensing hooks that are disabled in current test builds.

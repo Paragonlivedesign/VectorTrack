@@ -7,7 +7,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 LEGACY_SOURCE = "legacy-v1"
 
 
@@ -144,6 +144,13 @@ def _migrate_v3_lock_fields(conn: sqlite3.Connection) -> None:
         );
         """
     )
+
+
+def _migrate_v5_rate_overridden(conn: sqlite3.Connection) -> None:
+    if not _column_exists(conn, "sessions", "rate_overridden"):
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN rate_overridden INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def _migrate_v4_session_overrides(conn: sqlite3.Connection) -> None:
@@ -302,6 +309,11 @@ def migrate(conn: sqlite3.Connection, legacy_db_file: Path | None = None) -> Non
     if current_version < 4:
         _migrate_v4_session_overrides(conn)
         conn.execute("PRAGMA user_version = 4")
+        current_version = 4
+
+    if current_version < 5:
+        _migrate_v5_rate_overridden(conn)
+        conn.execute("PRAGMA user_version = 5")
 
 
 def init_database(db_file: Path, legacy_db_file: Path | None = None) -> None:

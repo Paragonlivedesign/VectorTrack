@@ -11,10 +11,14 @@ from vectortrack.services.log_service import LogService
 from vectortrack.services.session_aggregator import SessionAggregator, UnifiedSession
 
 
-def _project_display_name(name: str, code: str = "") -> str:
+def _project_report_label(name: str, code: str = "") -> str:
     cleaned_name = name.strip()
     cleaned_code = code.strip()
-    return cleaned_name or cleaned_code
+    if not cleaned_code or cleaned_code == cleaned_name:
+        return cleaned_name or cleaned_code
+    if not cleaned_name:
+        return cleaned_code
+    return f"{cleaned_code} — {cleaned_name}"
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,7 @@ class ReportRow:
     end: datetime
     project_code: str
     project_name: str
+    project_label: str
     client_name: str
     file: str
     source: str
@@ -66,10 +71,10 @@ class ReportRow:
         }
 
     def to_qb_csv(self) -> dict[str, object]:
-        description = f"{self.project_name} — {self.file}"
+        description = f"{self.project_label} — {self.file}"
         return {
             "date": self.date,
-            "project": self.project_code,
+            "project": self.project_label,
             "description": description,
             "hours": f"{self.billed_hours:.2f}",
             "rate": f"{self.effective_rate:.2f}",
@@ -82,7 +87,7 @@ class ReportRow:
         return {
             "date": self.date,
             "client": self.client_name,
-            "project": self.project_name,
+            "project": self.project_label,
             "hours": f"{self.billed_hours:.2f}",
             "amount": f"{self.billed_amount:.2f}",
             "taxable": "yes" if self.billable else "no",
@@ -94,6 +99,7 @@ class ReportRow:
 class ProjectAggregate:
     project_code: str
     project_name: str
+    project_label: str
     client_name: str
     raw_hours: float = 0.0
     billed_hours: float = 0.0
@@ -123,6 +129,7 @@ class ReportDataSet:
                 ProjectAggregate(
                     project_code=row.project_code,
                     project_name=row.project_name,
+                    project_label=row.project_label,
                     client_name=row.client_name,
                     trust_score=row.trust_score,
                     invoice_number=row.invoice_number,
@@ -133,7 +140,7 @@ class ReportDataSet:
             agg.billed_hours += row.billed_hours
             agg.raw_amount += row.raw_amount
             agg.billed_amount += row.billed_amount
-        return sorted(grouped.values(), key=lambda item: item.project_name.lower())
+        return sorted(grouped.values(), key=lambda item: item.project_label.lower())
 
 
 class ReportDataBuilder:
@@ -235,13 +242,14 @@ class ReportDataBuilder:
         invoice_number = ""
         is_locked = False
         if project:
-            project_name = _project_display_name(project.name, project.project_code)
+            project_name = project.name.strip() or project.project_code.strip()
             client = self.repository.get_client(project.client_id)
             client_name = client.name if client else ""
             invoice_number = project.invoice_number or ""
             is_locked = bool(project.is_locked)
         return {
             "project_name": project_name,
+            "project_label": _project_report_label(project_name, project_code),
             "client_name": client_name,
             "invoice_number": invoice_number,
             "is_locked": is_locked,
@@ -285,6 +293,13 @@ class ReportDataBuilder:
             end=session.end,
             project_code=session.project_id,
             project_name=str(project_meta.get("project_name") or session.project_id),
+            project_label=str(
+                project_meta.get("project_label")
+                or _project_report_label(
+                    str(project_meta.get("project_name") or session.project_id),
+                    session.project_id,
+                )
+            ),
             client_name=str(project_meta.get("client_name") or ""),
             file=session.file_alias or session.file_path,
             source=session.source,
@@ -309,7 +324,12 @@ class ReportDataBuilder:
             f"{filters.from_dt.strftime('%Y-%m-%d %H:%M')} – {filters.to_dt.strftime('%Y-%m-%d %H:%M')}",
         ]
         if filters.project_code:
-            parts.append(f"Project: {filters.project_code}")
+            project = self.repository.get_project_by_code(filters.project_code)
+            if project:
+                label = _project_report_label(project.name, project.project_code)
+            else:
+                label = filters.project_code
+            parts.append(f"Project: {label}")
         if filters.client_id:
             client = self.repository.get_client(filters.client_id)
             if client:

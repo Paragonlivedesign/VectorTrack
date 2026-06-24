@@ -28,7 +28,7 @@ from vectortrack.services.log_service import LogService
 from vectortrack.services.report_data import ReportDataBuilder, ReportFilter
 from vectortrack.services.report_service import ReportService
 from vectortrack.services.session_aggregator import SessionAggregator
-from vectortrack.ui.formatting import project_display_name
+from vectortrack.ui.formatting import project_display_name, project_report_label
 
 
 class ReportDialog(QDialog):
@@ -219,7 +219,11 @@ class ReportDialog(QDialog):
             return str(config.reports_dir() / f"{slug}_statement_{stamp}.{extension}")
         if report_type == "project":
             project_code = str(self.project_combo.currentData() or "project")
-            slug = ReportService._slug(project_code)
+            project = self.repository.get_project_by_code(project_code)
+            slug_source = project_code
+            if project:
+                slug_source = project_report_label(project.name, project.project_code)
+            slug = ReportService._slug(slug_source)
             return str(config.reports_dir() / f"{slug}_project_{stamp}.{extension}")
         return str(config.reports_dir() / f"master_report_{stamp}.{extension}")
 
@@ -292,7 +296,7 @@ class ReportDialog(QDialog):
             invoice_number = ""
             is_locked = False
             if project:
-                project_name = project_display_name(project.name, project.project_code)
+                project_name = project_report_label(project.name, project.project_code)
                 client = self.repository.get_client(project.client_id)
                 client_name = client.name if client else ""
                 hourly_rate = float(project.hourly_rate)

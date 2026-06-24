@@ -4,7 +4,19 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QRadioButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from vectortrack.db.repository import Repository
 
 
 class ProjectAssignDialog(QDialog):
@@ -17,7 +29,7 @@ class ProjectAssignDialog(QDialog):
         super().__init__(parent)
         self._file_paths = [path for path in file_paths if path]
         self.setWindowTitle("Assign Project")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(460)
         layout = QVBoxLayout(self)
 
         if len(self._file_paths) == 1:
@@ -32,7 +44,18 @@ class ProjectAssignDialog(QDialog):
         self.project_combo = QComboBox()
         for code, label in projects:
             self.project_combo.addItem(label, code)
+        layout.addWidget(QLabel("Project"))
         layout.addWidget(self.project_combo)
+
+        layout.addWidget(QLabel("Rate on assignment"))
+        self.rate_group = QButtonGroup(self)
+        self.use_project_rate = QRadioButton("Use project rate")
+        self.keep_current_rate = QRadioButton("Keep current rate")
+        self.split_at_assignment = QRadioButton("Split at assignment (prior time keeps current rate)")
+        self.use_project_rate.setChecked(True)
+        for button in (self.use_project_rate, self.keep_current_rate, self.split_at_assignment):
+            self.rate_group.addButton(button)
+            layout.addWidget(button)
 
         buttons = QHBoxLayout()
         assign_btn = QPushButton("Assign")
@@ -50,3 +73,10 @@ class ProjectAssignDialog(QDialog):
 
     def selected_project(self) -> str:
         return str(self.project_combo.currentData() or "")
+
+    def selected_rate_strategy(self) -> str:
+        if self.keep_current_rate.isChecked():
+            return Repository.RATE_STRATEGY_KEEP
+        if self.split_at_assignment.isChecked():
+            return Repository.RATE_STRATEGY_SPLIT
+        return Repository.RATE_STRATEGY_PROJECT

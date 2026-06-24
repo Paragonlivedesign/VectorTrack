@@ -37,7 +37,7 @@ class ReportService:
         ]
         rows = [
             [
-                agg.project_name,
+                agg.project_label,
                 agg.client_name,
                 f"{agg.raw_hours:.2f}",
                 f"{agg.billed_hours:.2f}",
@@ -140,7 +140,7 @@ class ReportService:
         headers = ["Project", "Invoice #", "Raw Hrs", "Billed Hrs", "Raw Amt", "Billed Amt"]
         rows = [
             [
-                agg.project_name,
+                agg.project_label,
                 agg.invoice_number if agg.is_locked else "—",
                 f"{agg.raw_hours:.2f}",
                 f"{agg.billed_hours:.2f}",
@@ -216,7 +216,7 @@ class ReportService:
             grand_raw_amount += agg.raw_amount
             grand_billed_amount += agg.billed_amount
             lines.append(
-                f"- {agg.project_name}: {agg.raw_hours:.2f}h raw / {agg.billed_hours:.2f}h billed "
+                f"- {agg.project_label}: {agg.raw_hours:.2f}h raw / {agg.billed_hours:.2f}h billed "
                 f"(${agg.raw_amount:.2f} raw / ${agg.billed_amount:.2f} billed)"
             )
         lines.append(

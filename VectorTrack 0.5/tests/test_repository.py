@@ -138,6 +138,57 @@ def test_v1_sessions_db_migration(tmp_path):
     assert sessions[0].live_duration.total_seconds() == 3600.0
 
 
+def test_delete_project_unassigns_sessions(repository: Repository):
+    client = repository.create_client(Client(name="DeleteCo", code="DC"))
+    project = repository.create_project(
+        BillableProject(
+            client_id=client.id or 0,
+            project_code="DEL-1",
+            name="Delete Me",
+            hourly_rate=80.0,
+        )
+    )
+    assert project.id is not None
+    repository.upsert_alias_rule(
+        AliasRule(project_id=project.id, alias_pattern="delete-test", priority=1)
+    )
+
+    open_session = repository.upsert_open_session(
+        TimeSession(
+            project_id="DEL-1",
+            file_path="I:/projects/delete-open.vwx",
+            machine_id="machine-del",
+            source="live",
+            start_time=datetime.now(timezone.utc),
+            live_duration=timedelta(minutes=30),
+        )
+    )
+    closed_session = repository.upsert_open_session(
+        TimeSession(
+            project_id="DEL-1",
+            file_path="I:/projects/delete-closed.vwx",
+            machine_id="machine-del",
+            source="legacy-v1",
+            start_time=datetime.now(timezone.utc),
+            live_duration=timedelta(hours=1),
+        )
+    )
+    assert closed_session.id is not None
+    repository.close_session(closed_session.id, datetime.now(timezone.utc).isoformat())
+
+    repository.delete_project("DEL-1")
+
+    assert repository.get_project_by_code("DEL-1") is None
+    assert repository.list_alias_rules(project_id=project.id, active_only=False) == []
+    assert repository.count_sessions_for_project("DEL-1") == 0
+
+    unassigned = repository.list_sessions(project_id="", include_open=True, limit=100)
+    open_ids = {session.id for session in unassigned if session.end_time is None}
+    closed_ids = {session.id for session in unassigned if session.end_time is not None}
+    assert open_session.id in open_ids
+    assert closed_session.id in closed_ids
+
+
 def test_project_lock_blocks_manual_entry(repository: Repository):
     client = repository.create_client(Client(name="LockCo", code="LC"))
     project = repository.create_project(

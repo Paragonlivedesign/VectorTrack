@@ -83,6 +83,8 @@ def test_report_row_dual_amounts_with_rounding(repository, report_builder, billi
     assert row.billed_hours == billing.rounded_hours
     assert row.billed_amount == billing.total_due
     assert row.effective_rate == billing.effective_rate
+    assert row.project_name == "Arena Build"
+    assert row.project_label == "VT-100 — Arena Build"
 
 
 def test_report_row_excluded_not_billable(report_builder):
@@ -170,9 +172,11 @@ def test_build_filters_by_date(repository, report_builder):
     )
     assert len(data.active_rows) == 1
     assert data.active_rows[0].file.endswith("inside.vwx")
+    assert "VT-100 — Arena Build" in data.filter_summary
 
 
-def test_csv_row_mapping_uses_client_name(report_builder):
+def test_csv_row_mapping_uses_client_name(repository, report_builder):
+    _seed_project(repository)
     session = UnifiedSession(
         start=datetime(2026, 6, 10, 10, 0, 0),
         end=datetime(2026, 6, 10, 11, 0, 0),
@@ -186,17 +190,22 @@ def test_csv_row_mapping_uses_client_name(report_builder):
     )
     rows = report_builder.rows_from_unified_sessions([session], "VT-100")
     row = rows[0]
-    row.client_name = "ACME Corp"
-    row.project_name = "Arena Build"
     qb = row.to_qb_csv()
     assert qb["customer"] == "ACME Corp"
+    assert qb["project"] == "VT-100 — Arena Build"
+    assert qb["description"].startswith("VT-100 — Arena Build — ")
     accountant = row.to_accountant_csv()
     assert accountant["client"] == "ACME Corp"
+    assert accountant["project"] == "VT-100 — Arena Build"
     assert accountant["taxable"] == "yes"
+    standard = row.to_standard_csv()
+    assert standard["project_name"] == "Arena Build"
+    assert standard["project"] == "VT-100"
 
 
-def test_report_service_pdf_and_csv_smoke(tmp_path, report_builder):
+def test_report_service_pdf_and_csv_smoke(tmp_path, repository, report_builder):
     pytest.importorskip("reportlab")
+    _seed_project(repository)
     sessions = [
         UnifiedSession(
             start=datetime(2026, 6, 10, 10, 0, 0),
@@ -211,9 +220,6 @@ def test_report_service_pdf_and_csv_smoke(tmp_path, report_builder):
         ),
     ]
     rows = report_builder.rows_from_unified_sessions(sessions, "VT-100")
-    for row in rows:
-        row.client_name = "ACME Corp"
-        row.project_name = "Arena Build"
 
     from vectortrack.services.report_data import ReportDataSet
 
@@ -224,12 +230,13 @@ def test_report_service_pdf_and_csv_smoke(tmp_path, report_builder):
         to_dt=datetime(2026, 6, 30),
     )
     aggregates = data.aggregate_by_project()
+    assert aggregates[0].project_label == "VT-100 — Arena Build"
     service = ReportService(output_dir=str(tmp_path))
 
     master_pdf = service.create_master_pdf(data, aggregates, output_path=str(tmp_path / "master.pdf"))
     project_pdf = service.create_project_pdf(
         data,
-        project_name="Arena Build",
+        project_name="VT-100 — Arena Build",
         client_name="ACME Corp",
         hourly_rate=90.0,
         output_path=str(tmp_path / "project.pdf"),
@@ -258,6 +265,7 @@ def test_clipboard_summary_totals(report_builder):
         ProjectAggregate(
             project_code="VT-100",
             project_name="Arena",
+            project_label="VT-100 — Arena",
             client_name="ACME",
             raw_hours=2.0,
             billed_hours=2.0,
@@ -267,7 +275,7 @@ def test_clipboard_summary_totals(report_builder):
     ]
     service = ReportService()
     summary = service.build_clipboard_summary(aggregates)
-    assert "Arena" in summary
+    assert "VT-100 — Arena" in summary
     assert "150.00" in summary
     assert "175.00" in summary
     assert "TOTAL" in summary

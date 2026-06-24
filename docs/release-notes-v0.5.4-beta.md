@@ -6,6 +6,9 @@
 - **Orphan projects** from file assignments auto-register in Project Editor
 - **Open Files** — edit project on double-click; click active row Status/Live to resume tracking
 - **Pause/Resume** menu label and idle-gap fix when resuming
+- **Hourly rates** — default → project → session override; assign with project/keep/split strategies
+- **Edit rate** — double-click Rate on an open file
+- **Delete project** in Project Editor (sessions become unassigned)
 
 ### Install
 

@@ -17,6 +17,7 @@ class TimeSession:
     start_time: datetime
     end_time: Optional[datetime] = None
     hourly_rate: float = 0.0
+    rate_overridden: bool = False
     live_duration: timedelta = timedelta()
     log_history_duration: timedelta = timedelta()
     log_current_open_hours: float = 0.0
@@ -49,6 +50,7 @@ class TimeSession:
             "start_time": self.start_time.isoformat(),
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "hourly_rate": self.hourly_rate,
+            "rate_overridden": int(self.rate_overridden),
             "live_duration": self.live_duration.total_seconds(),
             "log_history_duration": self.log_history_duration.total_seconds(),
             "log_current_open_hours": self.log_current_open_hours,
@@ -67,6 +69,7 @@ class TimeSession:
             "start_time": self.start_time.isoformat(),
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "hourly_rate": self.hourly_rate,
+            "rate_overridden": int(self.rate_overridden),
             "live_duration": self.live_duration.total_seconds(),
             "log_history_duration": self.log_history_duration.total_seconds(),
             "log_current_open_hours": self.log_current_open_hours,
@@ -102,6 +105,7 @@ class TimeSession:
             start_time=start_time,
             end_time=end_time,
             hourly_rate=float(working.get("hourly_rate", 0) or 0),
+            rate_overridden=bool(int(working.get("rate_overridden", 0) or 0)),
             live_duration=live_duration,
             log_history_duration=timedelta(
                 seconds=float(working.get("log_history_duration", 0) or 0)

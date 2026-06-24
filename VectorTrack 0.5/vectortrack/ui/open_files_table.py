@@ -24,10 +24,12 @@ class OpenFilesTable(QTableWidget):
     manual_entry_requested = pyqtSignal(str)
     view_sessions_requested = pyqtSignal(str)
     resume_tracking_requested = pyqtSignal(str)
+    edit_rate_requested = pyqtSignal(str)
 
     HEADERS = ["File", "Project", "Status", "Past", "Live", "Delta", "Rate", "Earned", "Actions"]
     LIVE_COLUMN = 4
     STATUS_COLUMN = 2
+    RATE_COLUMN = 6
     ROLE_FILE_PATH = Qt.ItemDataRole.UserRole
     ROLE_ROW_KIND = Qt.ItemDataRole.UserRole + 1
     ROLE_PROJECT_CODE = Qt.ItemDataRole.UserRole + 2
@@ -182,6 +184,9 @@ class OpenFilesTable(QTableWidget):
             return
         if column == 1:
             self.edit_project_requested.emit(file_path)
+            return
+        if column == self.RATE_COLUMN:
+            self.edit_rate_requested.emit(file_path)
             return
         self.view_sessions_requested.emit(file_path)
 

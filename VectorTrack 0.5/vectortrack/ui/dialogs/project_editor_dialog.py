@@ -80,12 +80,15 @@ class ProjectEditorDialog(QDialog):
         add_alias_btn.clicked.connect(self._add_alias)
         self.lock_btn = QPushButton("Lock Project")
         self.lock_btn.clicked.connect(self._toggle_lock)
+        delete_btn = QPushButton("Delete Project")
+        delete_btn.clicked.connect(self._delete_project)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
         actions.addWidget(create_btn)
         actions.addWidget(self.save_btn)
         actions.addWidget(add_alias_btn)
         actions.addWidget(self.lock_btn)
+        actions.addWidget(delete_btn)
         actions.addStretch()
         actions.addWidget(close_btn)
         editor.addLayout(actions)
@@ -306,4 +309,42 @@ class ProjectEditorDialog(QDialog):
         self.repository.upsert_alias_rule(AliasRule(project_id=project.id, alias_pattern=alias))
         self.alias_entry.clear()
         self._load_project_details(project_code)
+
+    def _delete_project(self) -> None:
+        project_code = self._selected_project_code()
+        if not project_code:
+            QMessageBox.information(self, "No project", "Select a project first.")
+            return
+        project = self.repository.get_project_by_code(project_code)
+        if not project:
+            return
+
+        session_count = self.repository.count_sessions_for_project(project_code)
+        label = project_display_name(project.name, project.project_code)
+        message = f"Delete project '{label}'?"
+        if session_count:
+            message += (
+                f"\n\n{session_count} session(s) will be moved to unassigned."
+            )
+        if project.is_locked:
+            message += "\n\nThis project is locked for billing."
+        message += "\n\nThis cannot be undone."
+
+        answer = QMessageBox.question(
+            self,
+            "Delete project",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.repository.delete_project(project_code)
+        except Exception as exc:
+            QMessageBox.warning(self, "Unable to delete", str(exc))
+            return
+
+        self._refresh_projects()
 

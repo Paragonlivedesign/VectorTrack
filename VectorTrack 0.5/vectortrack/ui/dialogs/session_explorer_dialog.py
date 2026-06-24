@@ -307,6 +307,12 @@ class SessionExplorerDialog(QDialog):
                 if not existing:
                     return
                 duration = values["end_time"] - values["start_time"]
+                new_rate = float(values["hourly_rate"])
+                rate_overridden = (
+                    existing.rate_overridden
+                    or abs(new_rate - existing.hourly_rate) > 0.001
+                    or existing.source == "manual"
+                )
                 updated = TimeSession(
                     id=existing.id,
                     project_id=existing.project_id,
@@ -314,7 +320,8 @@ class SessionExplorerDialog(QDialog):
                     file_alias=Path(str(values["file_path"])).name,
                     start_time=values["start_time"],
                     end_time=values["end_time"],
-                    hourly_rate=float(values["hourly_rate"]),
+                    hourly_rate=new_rate,
+                    rate_overridden=rate_overridden,
                     live_duration=duration if existing.source == "live" else existing.live_duration,
                     log_history_duration=existing.log_history_duration,
                     source=existing.source,

@@ -24,6 +24,17 @@ def project_display_name(name: str, code: str = "") -> str:
     return cleaned_name or cleaned_code
 
 
+def project_report_label(name: str, code: str = "") -> str:
+    """Format project number and name for reports and paperwork exports."""
+    cleaned_name = name.strip()
+    cleaned_code = code.strip()
+    if not cleaned_code or cleaned_code == cleaned_name:
+        return cleaned_name or cleaned_code
+    if not cleaned_name:
+        return cleaned_code
+    return f"{cleaned_code} — {cleaned_name}"
+
+
 def resolve_project_code(name: str, code: str = "") -> str:
     """Return the stored project key; code is optional and falls back to name."""
     cleaned_name = name.strip()

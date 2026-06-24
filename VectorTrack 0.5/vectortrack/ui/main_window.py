@@ -69,6 +69,7 @@ from vectortrack.ui.dialogs.manual_entry_dialog import ManualEntryDialog
 from vectortrack.ui.dialogs.project_assign_dialog import ProjectAssignDialog
 from vectortrack.ui.dialogs.project_editor_dialog import ProjectEditorDialog
 from vectortrack.ui.dialogs.new_project_dialog import NewProjectDialog
+from vectortrack.ui.dialogs.rate_edit_dialog import RateEditDialog
 from vectortrack.ui.dialogs.report_dialog import ReportDialog
 from vectortrack.ui.dialogs.settings_dialog import SettingsDialog
 from vectortrack.services.session_aggregator import SessionAggregator
@@ -114,6 +115,7 @@ class MainWindow(QMainWindow):
         self.vw_log_path = self.settings.value("vw_log_path", "", type=str)
         self.dark_mode_enabled = self.settings.value("dark_mode_enabled", False, type=bool)
         self.default_rate = self.settings.value("default_hourly_rate", 75.0, type=float)
+        self.repository.default_hourly_rate = float(self.default_rate)
         self.minimize_to_tray = self.settings.value("minimize_to_tray", True, type=bool)
         self.notifications_enabled = self.settings.value("notifications_enabled", True, type=bool)
         self.global_hotkeys_enabled = self.settings.value("global_hotkeys_enabled", True, type=bool)
@@ -184,6 +186,7 @@ class MainWindow(QMainWindow):
         self.open_files_table.manual_entry_requested.connect(self._open_manual_entry)
         self.open_files_table.view_sessions_requested.connect(self._open_session_explorer_for_file)
         self.open_files_table.resume_tracking_requested.connect(self._resume_tracking_for_file)
+        self.open_files_table.edit_rate_requested.connect(self._edit_rate_for_file)
         self.project_summary_table.view_sessions_requested.connect(self._open_session_explorer_for_project)
         self.project_summary_table.edit_project_requested.connect(self._show_project_editor)
         self.heatmap_widget.day_clicked.connect(self._jump_history_to_day)
@@ -219,7 +222,9 @@ class MainWindow(QMainWindow):
 
     @classmethod
     def create_default(cls) -> "MainWindow":
-        repository = Repository()
+        settings = QSettings("Paragon", "VectorTrack")
+        default_rate = settings.value("default_hourly_rate", 75.0, type=float)
+        repository = Repository(default_hourly_rate=float(default_rate))
         process_monitor = ProcessMonitor()
         activity_monitor = ActivityMonitor(
             idle_timeout_seconds=60
@@ -516,7 +521,20 @@ class MainWindow(QMainWindow):
     def _save_project_overrides(self) -> None:
         self.settings.setValue("file_project_overrides", json.dumps(self.file_project_overrides))
 
+    def _cleanup_stale_project_overrides(self) -> None:
+        stale_paths = [
+            path
+            for path, code in self.file_project_overrides.items()
+            if code and self.repository.get_project_by_code(str(code).strip()) is None
+        ]
+        if not stale_paths:
+            return
+        for path in stale_paths:
+            del self.file_project_overrides[path]
+        self._save_project_overrides()
+
     def _sync_orphan_project_assignments(self) -> None:
+        self._cleanup_stale_project_overrides()
         codes: set[str] = set()
         for code in self.file_project_overrides.values():
             if code:
@@ -594,17 +612,17 @@ class MainWindow(QMainWindow):
         return project_code
 
     def _project_options(self) -> list[tuple[str, str]]:
-        options: list[tuple[str, str]] = []
+        return [(code, label) for code, label, _rate in self._project_options_with_rates()]
+
+    def _project_options_with_rates(self) -> list[tuple[str, str, float]]:
+        options: list[tuple[str, str, float]] = []
         for project in self.repository.list_projects():
             label = project_display_name(project.name, project.project_code)
-            options.append((project.project_code, label))
+            options.append((project.project_code, label, float(project.hourly_rate)))
         return sorted(options, key=lambda item: item[1].lower())
 
     def _rate_for_project(self, project_code: str) -> float:
-        if not project_code:
-            return self.default_rate
-        project = self.repository.get_project_by_code(project_code)
-        return float(project.hourly_rate) if project else self.default_rate
+        return self.repository.resolve_hourly_rate(project_code)
 
     def _budget_for_project(self, project_code: str) -> float:
         raw = self.repository.get_setting(f"budget_hours:{project_code}", "0")
@@ -756,7 +774,11 @@ class MainWindow(QMainWindow):
     ) -> dict[str, object]:
         state = self.tracking_service.states_by_file.get(file_path)
         project_code = self._project_for_file(file_path, state)
-        rate = self._rate_for_project(project_code)
+        open_session = self.repository.get_open_live_session(file_path) if is_open else None
+        if open_session is not None:
+            rate = float(open_session.hourly_rate)
+        else:
+            rate = self._rate_for_project(project_code)
         live_hours = float(state.tracked_hours if state and is_open else 0.0)
         closed_hours, open_hours = self._log_stats_for_file(file_path, Path(file_path).name)
         delta_hours = (open_hours - live_hours) if is_open else 0.0
@@ -1012,15 +1034,58 @@ class MainWindow(QMainWindow):
         project_code = dialog.selected_project()
         if not project_code:
             return
+        rate_strategy = dialog.selected_rate_strategy()
         for file_path in dialog.file_paths:
             self.file_project_overrides[file_path] = project_code
+            _open_session, split = self.repository.assign_file_to_project(
+                file_path,
+                project_code,
+                rate_strategy=rate_strategy,
+            )
             state = self.tracking_service.states_by_file.get(file_path)
             if state is not None:
                 state.project_id = project_code
+                if split:
+                    now = datetime.now()
+                    state.tracked_seconds = 0.0
+                    state.started_at = now
+                    state.last_tick_at = now
                 self.repository.update_session_duration(state, 0.0)
         self._save_project_overrides()
         self._sync_orphan_project_assignments()
         self._tick()
+
+    def _edit_rate_for_file(self, file_path: str) -> None:
+        if not file_path:
+            return
+        state = self.tracking_service.states_by_file.get(file_path)
+        project_code = self._project_for_file(file_path, state)
+        open_session = self.repository.get_open_live_session(file_path)
+        current_rate = (
+            float(open_session.hourly_rate)
+            if open_session is not None
+            else self._rate_for_project(project_code)
+        )
+        dialog = RateEditDialog(current_rate=current_rate, parent=self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        new_rate = dialog.hourly_rate()
+        updated = self.repository.set_open_session_rate(file_path, new_rate)
+        if updated is None and state is not None:
+            session = TimeSession(
+                project_id=state.project_id,
+                file_path=file_path,
+                start_time=state.started_at,
+                hourly_rate=new_rate,
+                rate_overridden=True,
+                live_duration=timedelta(seconds=max(0.0, state.tracked_seconds)),
+                source="live",
+            )
+            self.repository.upsert_open_session(session)
+        elif state is not None:
+            self.repository.update_session_duration(state, 0.0)
+        self._tick()
+        self._refresh_history()
 
     def _edit_project_for_file(self, file_path: str) -> None:
         if not file_path:
@@ -1034,7 +1099,7 @@ class MainWindow(QMainWindow):
         self._show_project_editor(project_code)
 
     def _open_manual_entry(self, suggested_file: str) -> None:
-        projects = self._project_options()
+        projects = self._project_options_with_rates()
         dialog = ManualEntryDialog(
             projects=projects,
             suggested_file=suggested_file,
@@ -1057,6 +1122,7 @@ class MainWindow(QMainWindow):
             start_time=start_time,
             end_time=end_time,
             hourly_rate=float(values["hourly_rate"]),
+            rate_overridden=True,
             live_duration=duration,
             source="manual",
         )
@@ -1086,6 +1152,7 @@ class MainWindow(QMainWindow):
         self.vw_log_merge_years = bool(values["vw_log_merge_years"])
         self.dark_mode_enabled = bool(values["dark_mode_enabled"])
         self.default_rate = float(values["default_hourly_rate"])
+        self.repository.default_hourly_rate = self.default_rate
         self.minimize_to_tray = bool(values["minimize_to_tray"])
         self.notifications_enabled = bool(values.get("notifications_enabled", True))
         self.global_hotkeys_enabled = bool(values.get("global_hotkeys_enabled", True))

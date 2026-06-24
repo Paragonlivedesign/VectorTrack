@@ -17,14 +17,27 @@ from datetime import datetime, timedelta, timezone
 from vectortrack.models import AliasRule, BillableProject, Client, TimeSession
 
 
+from vectortrack.db.rate_resolver import resolve_rate_for_project
+
+
 class Repository:
+    RATE_STRATEGY_PROJECT = "project_rate"
+    RATE_STRATEGY_KEEP = "keep_rate"
+    RATE_STRATEGY_SPLIT = "split"
+
     def __init__(
         self,
         database_path: Path | None = None,
         legacy_database_path: Path | None = None,
+        default_hourly_rate: float | None = None,
     ) -> None:
         self.database_path = database_path or config.db_path()
         self.legacy_database_path = legacy_database_path or config.legacy_db_path()
+        self.default_hourly_rate = (
+            float(default_hourly_rate)
+            if default_hourly_rate is not None
+            else float(config.DEFAULT_HOURLY_RATE)
+        )
         init_database(self.database_path, legacy_db_file=self.legacy_database_path)
 
     def _connect(self) -> sqlite3.Connection:
@@ -281,6 +294,69 @@ class Repository:
             ).fetchone()
         return BillableProject.from_row(row) if row else None
 
+    def count_sessions_for_project(self, project_code: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM sessions WHERE project_id=?",
+                (project_code,),
+            ).fetchone()
+        return int(row["count"]) if row else 0
+
+    def delete_project(self, project_code: str) -> None:
+        project = self.get_project_by_code(project_code)
+        if project is None or project.id is None:
+            raise ValueError(f"Project not found: {project_code}")
+
+        with self._connect() as conn:
+            open_rows = conn.execute(
+                """
+                SELECT id, file_path, machine_id, source, live_duration
+                FROM sessions
+                WHERE project_id=? AND end_time IS NULL
+                """,
+                (project_code,),
+            ).fetchall()
+            for row in open_rows:
+                existing = conn.execute(
+                    """
+                    SELECT id, live_duration FROM sessions
+                    WHERE project_id=''
+                      AND file_path=?
+                      AND machine_id IS ?
+                      AND source IS ?
+                      AND end_time IS NULL
+                    """,
+                    (row["file_path"], row["machine_id"], row["source"]),
+                ).fetchone()
+                if existing:
+                    merged_duration = float(existing["live_duration"] or 0.0) + float(
+                        row["live_duration"] or 0.0
+                    )
+                    conn.execute(
+                        "UPDATE sessions SET live_duration=? WHERE id=?",
+                        (merged_duration, existing["id"]),
+                    )
+                    conn.execute("DELETE FROM sessions WHERE id=?", (row["id"],))
+                else:
+                    conn.execute(
+                        "UPDATE sessions SET project_id='' WHERE id=?",
+                        (row["id"],),
+                    )
+
+            conn.execute(
+                "UPDATE sessions SET project_id='' WHERE project_id=? AND end_time IS NOT NULL",
+                (project_code,),
+            )
+            conn.execute(
+                "UPDATE session_adjustments SET project_id='' WHERE project_id=?",
+                (project_code,),
+            )
+            conn.execute(
+                "DELETE FROM app_settings WHERE key=?",
+                (f"budget_hours:{project_code}",),
+            )
+            conn.execute("DELETE FROM billable_projects WHERE id=?", (project.id,))
+
     # Alias rules
     def upsert_alias_rule(self, rule: AliasRule) -> AliasRule:
         row = rule.to_row()
@@ -359,6 +435,144 @@ class Repository:
             return re.search(rule.alias_pattern, file_alias) is not None
         return rule.alias_pattern.lower() in file_alias.lower()
 
+    def resolve_hourly_rate(
+        self,
+        project_id: str,
+        *,
+        override_rate: float | None = None,
+    ) -> float:
+        return resolve_rate_for_project(
+            self,
+            project_id,
+            override_rate=override_rate,
+        )
+
+    def get_open_live_session(
+        self,
+        file_path: str,
+        machine_id: str | None = None,
+    ) -> Optional[TimeSession]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM sessions
+                WHERE file_path=?
+                  AND machine_id IS ?
+                  AND source = 'live'
+                  AND end_time IS NULL
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (file_path, machine_id),
+            ).fetchone()
+        return TimeSession.from_row(row) if row else None
+
+    def set_open_session_rate(self, file_path: str, hourly_rate: float) -> Optional[TimeSession]:
+        existing = self.get_open_live_session(file_path)
+        if not existing or existing.id is None:
+            return None
+        updated = TimeSession(
+            id=existing.id,
+            project_id=existing.project_id,
+            file_path=existing.file_path,
+            file_alias=existing.file_alias,
+            machine_id=existing.machine_id,
+            source=existing.source,
+            start_time=existing.start_time,
+            hourly_rate=float(hourly_rate),
+            rate_overridden=True,
+            live_duration=existing.live_duration,
+            log_history_duration=existing.log_history_duration,
+            log_current_open_hours=existing.log_current_open_hours,
+            balance_delta_hours=existing.balance_delta_hours,
+        )
+        return self._update_open_session_fields(updated)
+
+    def assign_file_to_project(
+        self,
+        file_path: str,
+        new_project_id: str,
+        *,
+        rate_strategy: str = RATE_STRATEGY_PROJECT,
+    ) -> tuple[Optional[TimeSession], bool]:
+        """
+        Reassign an open live session to a project.
+
+        Returns (open_session, split_occurred).
+        """
+        existing = self.get_open_live_session(file_path)
+        project_rate = self.resolve_hourly_rate(new_project_id)
+        now_dt = datetime.now()
+        now_iso = now_dt.isoformat()
+
+        if rate_strategy == self.RATE_STRATEGY_SPLIT and existing and existing.id is not None:
+            self.close_session(existing.id, now_iso)
+            new_session = TimeSession(
+                project_id=new_project_id,
+                file_path=file_path,
+                start_time=now_dt,
+                hourly_rate=project_rate,
+                rate_overridden=False,
+                live_duration=timedelta(),
+                source="live",
+            )
+            return self.upsert_open_session(new_session), True
+
+        if existing and existing.id is not None:
+            if rate_strategy == self.RATE_STRATEGY_KEEP:
+                new_rate = existing.hourly_rate
+                rate_overridden = True
+            else:
+                new_rate = project_rate
+                rate_overridden = False
+            updated = TimeSession(
+                id=existing.id,
+                project_id=new_project_id,
+                file_path=existing.file_path,
+                file_alias=existing.file_alias,
+                machine_id=existing.machine_id,
+                source=existing.source,
+                start_time=existing.start_time,
+                hourly_rate=new_rate,
+                rate_overridden=rate_overridden,
+                live_duration=existing.live_duration,
+                log_history_duration=existing.log_history_duration,
+                log_current_open_hours=existing.log_current_open_hours,
+                balance_delta_hours=existing.balance_delta_hours,
+            )
+            return self._update_open_session_fields(updated), False
+
+        return None, False
+
+    def _update_open_session_fields(self, session: TimeSession) -> TimeSession:
+        if session.id is None:
+            raise ValueError("session.id is required for update")
+        row = session.to_row()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE sessions
+                SET project_id=?, file_alias=?, start_time=?, hourly_rate=?, rate_overridden=?,
+                    live_duration=?, log_history_duration=?, log_current_open_hours=?,
+                    balance_delta_hours=?, updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (
+                    row["project_id"],
+                    row["file_alias"],
+                    row["start_time"],
+                    row["hourly_rate"],
+                    row["rate_overridden"],
+                    row["live_duration"],
+                    row["log_history_duration"],
+                    row["log_current_open_hours"],
+                    row["balance_delta_hours"],
+                    session.id,
+                ),
+            )
+            current = conn.execute("SELECT * FROM sessions WHERE id=?", (session.id,)).fetchone()
+        return TimeSession.from_row(current)
+
     # Sessions
     def start_session(self, tracking_state: Any) -> TimeSession:
         """
@@ -373,7 +587,7 @@ class Repository:
             project_id=str(getattr(tracking_state, "project_id", "")),
             file_path=str(getattr(tracking_state, "file_path", "")),
             start_time=started_at,
-            hourly_rate=self._hourly_rate_for_project(str(getattr(tracking_state, "project_id", ""))),
+            hourly_rate=self.resolve_hourly_rate(str(getattr(tracking_state, "project_id", ""))),
             live_duration=timedelta(seconds=max(0.0, tracked_seconds)),
             source="live",
         )
@@ -388,17 +602,46 @@ class Repository:
         """
         project_id = str(getattr(tracking_state, "project_id", ""))
         file_path = str(getattr(tracking_state, "file_path", ""))
-        if not project_id or not file_path:
+        if not file_path:
             return None
         tracked_seconds = float(getattr(tracking_state, "tracked_seconds", 0.0) or 0.0)
         started_at = getattr(tracking_state, "started_at", None) or datetime.now()
-        existing = self.get_open_session(project_id, file_path, source="live")
+        existing = self.get_open_live_session(file_path)
+        if existing is None:
+            existing = self.get_open_session(project_id, file_path, source="live")
+        if existing and existing.project_id != project_id and existing.id is not None:
+            existing = self._update_open_session_fields(
+                TimeSession(
+                    id=existing.id,
+                    project_id=project_id,
+                    file_path=existing.file_path,
+                    file_alias=existing.file_alias,
+                    machine_id=existing.machine_id,
+                    source=existing.source,
+                    start_time=existing.start_time,
+                    hourly_rate=(
+                        existing.hourly_rate
+                        if existing.rate_overridden
+                        else self.resolve_hourly_rate(project_id)
+                    ),
+                    rate_overridden=existing.rate_overridden,
+                    live_duration=existing.live_duration,
+                    log_history_duration=existing.log_history_duration,
+                    log_current_open_hours=existing.log_current_open_hours,
+                    balance_delta_hours=existing.balance_delta_hours,
+                )
+            )
         session = TimeSession(
             id=existing.id if existing else None,
             project_id=project_id,
             file_path=file_path,
             start_time=existing.start_time if existing else started_at,
-            hourly_rate=(existing.hourly_rate if existing else self._hourly_rate_for_project(project_id)),
+            hourly_rate=(
+                existing.hourly_rate
+                if existing
+                else self.resolve_hourly_rate(project_id)
+            ),
+            rate_overridden=existing.rate_overridden if existing else False,
             live_duration=timedelta(seconds=max(0.0, tracked_seconds)),
             log_history_duration=existing.log_history_duration if existing else timedelta(),
             log_current_open_hours=existing.log_current_open_hours if existing else 0.0,
@@ -411,9 +654,11 @@ class Repository:
         """Adapter for TrackingService session close events."""
         project_id = str(getattr(tracking_state, "project_id", ""))
         file_path = str(getattr(tracking_state, "file_path", ""))
-        if not project_id or not file_path:
+        if not file_path:
             return None
-        open_session = self.get_open_session(project_id, file_path, source="live")
+        open_session = self.get_open_live_session(file_path)
+        if open_session is None:
+            open_session = self.get_open_session(project_id, file_path, source="live")
         if not open_session or open_session.id is None:
             return None
         return self.close_session(open_session.id, datetime.now().isoformat())
@@ -454,7 +699,7 @@ class Repository:
                 conn.execute(
                     """
                     UPDATE sessions
-                    SET file_alias=?, start_time=?, hourly_rate=?, live_duration=?,
+                    SET file_alias=?, start_time=?, hourly_rate=?, rate_overridden=?, live_duration=?,
                         log_history_duration=?, log_current_open_hours=?,
                         balance_delta_hours=?, updated_at=CURRENT_TIMESTAMP
                     WHERE id=?
@@ -463,6 +708,7 @@ class Repository:
                         row["file_alias"],
                         row["start_time"],
                         row["hourly_rate"],
+                        row["rate_overridden"],
                         row["live_duration"],
                         row["log_history_duration"],
                         row["log_current_open_hours"],
@@ -476,10 +722,10 @@ class Repository:
                     """
                     INSERT INTO sessions(
                         project_id, file_path, file_alias, machine_id, source,
-                        start_time, end_time, hourly_rate, live_duration,
+                        start_time, end_time, hourly_rate, rate_overridden, live_duration,
                         log_history_duration, log_current_open_hours, balance_delta_hours
                     )
-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         row["project_id"],
@@ -490,6 +736,7 @@ class Repository:
                         row["start_time"],
                         row["end_time"],
                         row["hourly_rate"],
+                        row["rate_overridden"],
                         row["live_duration"],
                         row["log_history_duration"],
                         row["log_current_open_hours"],
@@ -585,7 +832,7 @@ class Repository:
                 """
                 UPDATE sessions
                 SET project_id=?, file_path=?, file_alias=?, machine_id=?, source=?,
-                    start_time=?, end_time=?, hourly_rate=?, live_duration=?,
+                    start_time=?, end_time=?, hourly_rate=?, rate_overridden=?, live_duration=?,
                     log_history_duration=?, log_current_open_hours=?,
                     balance_delta_hours=?, updated_at=CURRENT_TIMESTAMP
                 WHERE id=?
@@ -599,6 +846,7 @@ class Repository:
                     row["start_time"],
                     row["end_time"],
                     row["hourly_rate"],
+                    row["rate_overridden"],
                     row["live_duration"],
                     row["log_history_duration"],
                     row["log_current_open_hours"],
@@ -852,5 +1100,4 @@ class Repository:
         return [project.project_code for project in projects]
 
     def _hourly_rate_for_project(self, project_id: str) -> float:
-        project = self.get_project_by_code(project_id)
-        return float(project.hourly_rate) if project else 0.0
+        return self.resolve_hourly_rate(project_id)

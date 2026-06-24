@@ -9,6 +9,11 @@
 - **Open Files** — double-click project column to edit; click Status/Live on active row to resume tracking
 - **Pause/resume** — clearer menu label; resume clears idle block without counting idle gap as billable time
 - **Edit Project** in Open Files and Project Summary context menus
+- **Hourly rate hierarchy** — default → project → per-session override; live Open Files row uses locked session rate
+- **Assign project** — choose project rate, keep current rate, or split session at assignment time
+- **Edit rate** — double-click Rate column on an open file to set session hourly rate
+- **Project Editor** — delete project (sessions move to unassigned)
+- Stale file→project overrides cleaned up when a project no longer exists
 - Installer artifact: `VectorTrack-0.5.4-Setup.exe`
 
 ### VectorTrackScript (plug-in)

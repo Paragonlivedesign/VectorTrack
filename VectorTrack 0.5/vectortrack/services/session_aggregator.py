@@ -315,7 +315,7 @@ class SessionAggregator:
                 if file_filter and normalize_file_name(file_filter) != normalize_file_name(file_alias):
                     if normalize_file_name(Path(file_filter).name) != normalize_file_name(file_alias):
                         continue
-                rate = self.repository._hourly_rate_for_project(project_filter)
+                rate = self.repository.resolve_hourly_rate(project_filter)
                 for record in records:
                     log_key = make_log_key(record.start, record.end, file_alias, machine_id)
                     sessions.append(

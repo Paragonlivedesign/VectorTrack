@@ -615,8 +615,10 @@ def _similarity_ratio(left: str, right: str) -> float:
 def find_suggested_duplicates(
     repository: Repository,
     catalog: dict[str, Any],
+    *,
+    local: dict[str, Any] | None = None,
 ) -> list[CatalogViewRow]:
-    local = export_local_catalog(repository)
+    local = local or export_local_catalog(repository)
     local_clients = local.get("clients") if isinstance(local.get("clients"), dict) else {}
     remote_clients = catalog.get("clients") if isinstance(catalog.get("clients"), dict) else {}
     suggestions: list[CatalogViewRow] = []
@@ -727,7 +729,7 @@ def build_catalog_view(repository: Repository, catalog: dict[str, Any]) -> Catal
     local_projects = local.get("projects") if isinstance(local.get("projects"), dict) else {}
     remote_projects = catalog.get("projects") if isinstance(catalog.get("projects"), dict) else {}
 
-    suggestions = find_suggested_duplicates(repository, catalog)
+    suggestions = find_suggested_duplicates(repository, catalog, local=local)
     suggested_client_keys = {
         row.key for row in suggestions if row.kind == CatalogItemKind.CLIENT
     }

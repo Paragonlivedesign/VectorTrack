@@ -15,6 +15,7 @@ from vectortrack.budget import (
     budget_usage,
     format_budget_display,
 )
+from vectortrack.ui.layout_utils import configure_compact_table
 
 
 class ProjectSummaryTable(QTableWidget):

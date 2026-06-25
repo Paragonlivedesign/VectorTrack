@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.8-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Performance** — cache catalog reads and diff results; throttle catalog nudge and project-summary refreshes to reduce UI lag with sync enabled
+- **Catalog sync** — reuse local catalog export when detecting duplicate suggestions (fewer DB round-trips)
+- **Project Summary** — compact table layout
+- Installer artifact: `VectorTrack-0.5.8-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.8 beta**
+
+---
+
 ## [0.5.7-beta] — 2026-06
 
 ### VectorTrack (desktop)

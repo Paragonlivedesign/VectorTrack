@@ -96,6 +96,7 @@ from vectortrack.services.vw_identity import (
 from vectortrack.ui.dialogs.session_explorer_dialog import SessionExplorerDialog
 from vectortrack.sync_config import SyncConfig, default_machine_id, load_sync_config_from_paths_json, settings_keys_from_sync_config, sync_config_to_mapping
 from vectortrack.sync_folder import (
+    catalog_path,
     gather_sync_log_paths,
     load_sync_machine_labels,
     merge_remote_assignments,
@@ -167,6 +168,14 @@ class MainWindow(QMainWindow):
         self._catalog_dirty = False
         self._machine_label_cache: dict[str, str] = {}
         self._catalog_pending_count = 0
+        self._cached_catalog: dict | None = None
+        self._cached_catalog_folder = ""
+        self._cached_catalog_mtime = 0.0
+        self._cached_catalog_diff = None
+        self._cached_catalog_diff_at = datetime.min
+        self._last_catalog_maintenance_at = datetime.min
+        self._last_catalog_nudge_at = datetime.min
+        self._last_project_summary_at = datetime.min
         self._last_log_sync = datetime.min
         self._last_sync_push = datetime.min
         self._last_sync_push_error = ""
@@ -206,7 +215,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_menus()
         self._build_statusbar()
-        self._refresh_merged_assignments()
+        self._refresh_merged_assignments(force_catalog_maintenance=True)
         self._restore_window_geometry()
         self._vw_detect_mode = self._auto_detect_vectorworks()
         self._apply_saved_theme()
@@ -660,6 +669,30 @@ class MainWindow(QMainWindow):
 
     def _mark_catalog_dirty(self) -> None:
         self._catalog_dirty = True
+        self._cached_catalog_diff = None
+
+    def _invalidate_catalog_cache(self) -> None:
+        self._cached_catalog = None
+        self._cached_catalog_diff = None
+
+    def _read_cached_catalog(self, sync_folder: str) -> dict:
+        path = catalog_path(sync_folder)
+        try:
+            mtime = os.path.getmtime(path) if os.path.isfile(path) else 0.0
+        except OSError:
+            mtime = 0.0
+        if (
+            self._cached_catalog is not None
+            and self._cached_catalog_folder == sync_folder
+            and self._cached_catalog_mtime == mtime
+        ):
+            return self._cached_catalog
+        catalog = read_catalog(sync_folder)
+        self._cached_catalog = catalog
+        self._cached_catalog_folder = sync_folder
+        self._cached_catalog_mtime = mtime
+        self._cached_catalog_diff = None
+        return catalog
 
     def _show_catalog_sync_summary(self, summary: CatalogApplySummary) -> None:
         if not summary.has_changes:
@@ -684,16 +717,29 @@ class MainWindow(QMainWindow):
         self._maybe_push_catalog(force=True)
         self._update_catalog_pending_nudge()
 
-    def _catalog_diff(self):
+    def _catalog_diff(self, *, force: bool = False):
         sync_folder = resolve_sync_folder(self.sync_config)
         if not sync_folder or not self.sync_config.enabled or not os.path.isdir(sync_folder):
             return None
-        return build_catalog_view(self.repository, read_catalog(sync_folder))
+        if (
+            not force
+            and not self._catalog_dirty
+            and self._cached_catalog_diff is not None
+            and (datetime.now() - self._cached_catalog_diff_at).total_seconds() < 60
+        ):
+            return self._cached_catalog_diff
+        catalog = self._read_cached_catalog(sync_folder)
+        self._cached_catalog_diff = build_catalog_view(self.repository, catalog)
+        self._cached_catalog_diff_at = datetime.now()
+        return self._cached_catalog_diff
 
-    def _update_catalog_pending_nudge(self) -> None:
+    def _update_catalog_pending_nudge(self, *, force: bool = False) -> None:
         if not hasattr(self, "_catalog_review_btn"):
             return
-        diff = self._catalog_diff()
+        if not force and (datetime.now() - self._last_catalog_nudge_at).total_seconds() < 60:
+            return
+        self._last_catalog_nudge_at = datetime.now()
+        diff = self._catalog_diff(force=force)
         if diff is None:
             self._catalog_pending_count = 0
             self._catalog_review_btn.hide()
@@ -717,13 +763,15 @@ class MainWindow(QMainWindow):
         )
         dialog.catalog_changed.connect(self._on_catalog_review_changed)
         dialog.exec()
-        self._update_catalog_pending_nudge()
+        self._update_catalog_pending_nudge(force=True)
 
     def _on_catalog_review_changed(self) -> None:
         self._mark_catalog_dirty()
+        self._invalidate_catalog_cache()
         self._maybe_push_catalog(force=True)
         self._tick()
         self._refresh_history()
+        self._update_catalog_pending_nudge(force=True)
 
     def _maybe_push_catalog(self, *, force: bool = False) -> None:
         if not self.sync_config.enabled or not self.sync_config.folder.strip():
@@ -736,6 +784,7 @@ class MainWindow(QMainWindow):
         ok, _err = push_catalog(sync_folder, self.repository)
         if ok:
             self._catalog_dirty = False
+            self._invalidate_catalog_cache()
 
     def _sync_catalog_roundtrip(self) -> None:
         sync_folder = resolve_sync_folder(self.sync_config)
@@ -744,11 +793,12 @@ class MainWindow(QMainWindow):
         _summary, ok, err = sync_catalog(sync_folder, self.repository)
         if ok:
             self._catalog_dirty = False
+            self._invalidate_catalog_cache()
         elif err:
             self.statusBar().showMessage(f"Catalog sync failed: {err}", 8000)
-        self._update_catalog_pending_nudge()
+        self._update_catalog_pending_nudge(force=True)
 
-    def _refresh_merged_assignments(self) -> None:
+    def _refresh_merged_assignments(self, *, force_catalog_maintenance: bool = False) -> None:
         sync_folder = resolve_sync_folder(self.sync_config)
         vw_year = self._current_vw_year()
         if sync_folder and self.sync_config.enabled:
@@ -766,8 +816,13 @@ class MainWindow(QMainWindow):
                 if path and code
             }
             self._machine_label_cache = {}
-        self._sync_orphan_project_assignments()
-        self._update_catalog_pending_nudge()
+        now = datetime.now()
+        if force_catalog_maintenance or (
+            now - self._last_catalog_maintenance_at
+        ).total_seconds() >= 120:
+            self._last_catalog_maintenance_at = now
+            self._sync_orphan_project_assignments()
+            self._update_catalog_pending_nudge(force=True)
 
     def _effective_assigned_files(self) -> dict[str, str]:
         assigned = dict(self.merged_assignments)
@@ -903,7 +958,7 @@ class MainWindow(QMainWindow):
         catalog = {}
         sync_folder = resolve_sync_folder(self.sync_config)
         if sync_folder and self.sync_config.enabled and os.path.isdir(sync_folder):
-            catalog = read_catalog(sync_folder)
+            catalog = self._read_cached_catalog(sync_folder)
 
         stub_codes, catalog_only = filter_orphan_project_codes(missing_codes, catalog)
         if catalog_only:
@@ -1302,7 +1357,11 @@ class MainWindow(QMainWindow):
             self._refresh_history()
         self._maybe_push_log_sync()
 
-    def _refresh_project_summary(self) -> None:
+    def _refresh_project_summary(self, *, force: bool = False) -> None:
+        now = datetime.now()
+        if not force and (now - self._last_project_summary_at).total_seconds() < 30:
+            return
+        self._last_project_summary_at = now
         if self.import_vw_log_history:
             start = datetime(1970, 1, 1)
             end = datetime(9999, 12, 31, 23, 59, 59)
@@ -1434,7 +1493,7 @@ class MainWindow(QMainWindow):
         self.history_browser.set_rows(rows)
         self.history_browser.set_project_options([project.project_code for project in self.repository.list_projects()])
         self._refresh_heatmap()
-        self._refresh_project_summary()
+        self._refresh_project_summary(force=True)
         self.clients_tab.refresh()
 
     def _refresh_heatmap(self) -> None:

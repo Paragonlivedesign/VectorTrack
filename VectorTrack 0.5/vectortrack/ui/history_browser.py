@@ -19,6 +19,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from vectortrack.ui.layout_utils import configure_compact_table
+
 
 class HistoryBrowser(QWidget):
     refresh_requested = pyqtSignal()
@@ -26,8 +28,11 @@ class HistoryBrowser(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
 
         filters = QHBoxLayout()
+        filters.setSpacing(6)
         self.project_filter = QComboBox()
         self.project_filter.addItem("All Projects", "")
         now = datetime.now()
@@ -54,10 +59,13 @@ class HistoryBrowser(QWidget):
         self.table.setHorizontalHeaderLabels(
             ["Start", "End", "Project", "File", "Machine", "Hours", "Rate", "Amount", "Status"]
         )
-        self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.table)
+        configure_compact_table(
+            self.table,
+            stretch_column=3,
+            content_columns=[0, 1, 2, 4, 5, 6, 7, 8],
+        )
+        layout.addWidget(self.table, 1)
 
     def set_project_options(self, project_codes: Iterable[str]) -> None:
         current = self.project_filter.currentData()

@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from vectortrack.ui.formatting import format_hours_compact, format_timer_hours
+from vectortrack.ui.layout_utils import configure_compact_table, scale_px
 
 
 class OpenFilesTable(QTableWidget):
@@ -42,7 +43,12 @@ class OpenFilesTable(QTableWidget):
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.horizontalHeader().setStretchLastSection(True)
+        configure_compact_table(
+            self,
+            stretch_column=0,
+            content_columns=[1, 2, 3, 4, 5, 6, 7],
+            fixed_columns={8: 250},
+        )
         self.cellDoubleClicked.connect(self._on_double_click)
         self.cellClicked.connect(self._on_cell_clicked)
 
@@ -116,8 +122,8 @@ class OpenFilesTable(QTableWidget):
         if rebuild_actions or self.cellWidget(row, 8) is None:
             actions = QWidget(self)
             actions_layout = QHBoxLayout(actions)
-            actions_layout.setContentsMargins(4, 2, 4, 2)
-            actions_layout.setSpacing(6)
+            actions_layout.setContentsMargins(2, 1, 2, 1)
+            actions_layout.setSpacing(scale_px(4))
             assign_btn = QPushButton("Assign")
             assign_btn.clicked.connect(lambda _checked=False, fp=file_path: self.assign_project_requested.emit(fp))
             sessions_btn = QPushButton("Sessions")

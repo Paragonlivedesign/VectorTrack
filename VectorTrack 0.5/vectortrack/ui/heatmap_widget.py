@@ -14,12 +14,15 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
+
+from vectortrack.ui.layout_utils import configure_compact_table, scale_px
 
 
 class HeatmapWidget(QWidget):
@@ -37,10 +40,13 @@ class HeatmapWidget(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
 
         calendar_panel = QWidget()
+        calendar_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         calendar_layout = QVBoxLayout(calendar_panel)
         calendar_layout.setContentsMargins(0, 0, 0, 0)
+        calendar_layout.setSpacing(4)
 
         header = QHBoxLayout()
         self.prev_btn = QPushButton("<")
@@ -55,16 +61,24 @@ class HeatmapWidget(QWidget):
         calendar_layout.addLayout(header)
 
         weekday_header = QGridLayout()
+        weekday_header.setHorizontalSpacing(0)
         weekday_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         for idx, name in enumerate(weekday_names):
             label = QLabel(name)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setObjectName("muted")
             weekday_header.addWidget(label, 0, idx)
         calendar_layout.addLayout(weekday_header)
 
         self.table = QTableWidget(6, 7, self)
+        row_height = scale_px(34)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(row_height)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setMaximumHeight(row_height * 6 + scale_px(2))
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectItems)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -75,11 +89,12 @@ class HeatmapWidget(QWidget):
             splitter = QSplitter(Qt.Orientation.Vertical)
             splitter.addWidget(calendar_panel)
             splitter.addWidget(self._build_details_panel())
-            splitter.setStretchFactor(0, 3)
-            splitter.setStretchFactor(1, 2)
-            splitter.setSizes([260, 220])
-            root.addWidget(splitter)
+            splitter.setStretchFactor(0, 0)
+            splitter.setStretchFactor(1, 1)
+            splitter.setSizes([scale_px(290), scale_px(360)])
+            root.addWidget(splitter, 1)
         else:
+            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
             root.addWidget(calendar_panel)
 
         self._render_month()
@@ -87,8 +102,11 @@ class HeatmapWidget(QWidget):
     def _build_details_panel(self) -> QGroupBox:
         self.details_group = QGroupBox("Day Details")
         layout = QVBoxLayout(self.details_group)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         header_row = QHBoxLayout()
+        header_row.setSpacing(8)
         self.details_summary = QLabel("Click a date to see sessions for that day.")
         self.details_summary.setObjectName("muted")
         self.details_summary.setWordWrap(True)
@@ -103,16 +121,13 @@ class HeatmapWidget(QWidget):
         self.details_table.setHorizontalHeaderLabels(
             ["Start", "End", "Project", "File", "Hours", "Amount"]
         )
-        self.details_table.verticalHeader().setVisible(False)
         self.details_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.details_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        details_header = self.details_table.horizontalHeader()
-        details_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        details_header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        details_header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        details_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        details_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        details_header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        configure_compact_table(
+            self.details_table,
+            stretch_column=3,
+            content_columns=[0, 1, 2, 4, 5],
+        )
         layout.addWidget(self.details_table, 1)
         return self.details_group
 

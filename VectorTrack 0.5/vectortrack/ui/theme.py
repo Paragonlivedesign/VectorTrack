@@ -49,7 +49,7 @@ def _table_qss(tokens: Dict[str, str]) -> str:
         QHeaderView::section {{
             background: {tokens["surface_alt"]};
             color: {tokens["muted_text"]};
-            padding: 6px;
+            padding: 4px 6px;
             border: none;
             border-right: 1px solid {tokens["border"]};
             border-bottom: 1px solid {tokens["border"]};
@@ -91,6 +91,19 @@ def apply_theme(app: QApplication, mode: str = "light") -> Dict[str, str]:
         }}
         QLabel#muted {{
             color: {tokens["muted_text"]};
+        }}
+        QLabel#dashboardValue {{
+            font-size: 16px;
+            font-weight: 700;
+        }}
+        QTabWidget::pane {{
+            border: 1px solid {tokens["border"]};
+            border-radius: 6px;
+            top: -1px;
+        }}
+        QTabBar::tab {{
+            padding: 6px 12px;
+            margin-right: 2px;
         }}
         QPushButton {{
             background: {tokens["surface"]};

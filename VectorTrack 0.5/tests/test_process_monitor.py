@@ -202,3 +202,42 @@ def test_suggested_exe_browse_directory_falls_back_to_program_files(monkeypatch)
     monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
     suggested = monitor.suggested_exe_browse_directory()
     assert "Program Files" in suggested
+
+
+def test_find_vectorworks_installations_finds_year_named_folder(tmp_path, monkeypatch):
+    exe_path = tmp_path / "Vectorworks 2026" / "Vectorworks 2026.exe"
+    exe_path.parent.mkdir(parents=True)
+    exe_path.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ProgramFiles", str(tmp_path))
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+
+    monitor = ProcessMonitor()
+    installs = monitor.find_vectorworks_installations()
+
+    assert installs["Vectorworks 2026"] == str(exe_path)
+
+
+def test_auto_select_vectorworks_uses_running_process(tmp_path, monkeypatch):
+    exe_path = tmp_path / "Vectorworks2026.exe"
+    exe_path.write_text("", encoding="utf-8")
+    monitor = ProcessMonitor()
+    monkeypatch.setattr(monitor, "find_vectorworks_installations", lambda: {})
+    monkeypatch.setattr(
+        monitor,
+        "detect_running_vectorworks_exe",
+        lambda: str(exe_path),
+    )
+
+    selected = monitor.auto_select_vectorworks()
+
+    assert selected == str(exe_path)
+    assert monitor.vectorworks_path == str(exe_path)
+
+
+def test_latest_known_exe_returns_newest_install(tmp_path):
+    monitor = ProcessMonitor()
+    monitor._known_paths = {
+        "Vectorworks 2024": str(tmp_path / "2024" / "Vectorworks.exe"),
+        "Vectorworks 2026": str(tmp_path / "2026" / "Vectorworks.exe"),
+    }
+    assert monitor.latest_known_exe() == str(tmp_path / "2026" / "Vectorworks.exe")

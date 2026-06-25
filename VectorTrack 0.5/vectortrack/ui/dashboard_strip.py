@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from vectortrack.ui.formatting import format_hours_compact, format_timer_hours
+from vectortrack.ui.layout_utils import scale_px
 
 
 class DashboardStrip(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QGridLayout(self)
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setHorizontalSpacing(10)
+        layout.setSpacing(scale_px(8))
 
         self._value_labels: dict[str, QLabel] = {}
         cards = [
@@ -22,10 +23,15 @@ class DashboardStrip(QWidget):
             ("month", "This Month"),
             ("earned", "Earned"),
         ]
-        for idx, (key, title) in enumerate(cards):
+        card_width = scale_px(168)
+        for key, title in cards:
             card = QFrame()
             card.setObjectName("card")
+            card.setMaximumWidth(card_width)
+            card.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
             card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(scale_px(10), scale_px(8), scale_px(10), scale_px(8))
+            card_layout.setSpacing(scale_px(2))
             heading = QLabel(title)
             heading.setObjectName("muted")
             if key == "active":
@@ -35,11 +41,12 @@ class DashboardStrip(QWidget):
             else:
                 default = "0.00h"
             value = QLabel(default)
-            value.setStyleSheet("font-size: 18px; font-weight: 700;")
+            value.setObjectName("dashboardValue")
             card_layout.addWidget(heading)
             card_layout.addWidget(value)
-            layout.addWidget(card, 0, idx)
+            layout.addWidget(card)
             self._value_labels[key] = value
+        layout.addStretch()
 
     def set_metrics(
         self,

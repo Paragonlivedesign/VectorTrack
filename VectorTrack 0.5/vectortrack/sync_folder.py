@@ -15,6 +15,7 @@ from vectortrack.sync_config import SyncConfig
 MACHINES_SUBDIR = "machines"
 SYNC_META_FILENAME = "sync_meta.json"
 ASSIGNMENTS_FILENAME = "assignments.json"
+CATALOG_FILENAME = "catalog.json"
 
 
 def resolve_sync_folder(sync_config: SyncConfig) -> Optional[str]:
@@ -96,6 +97,10 @@ def discover_remote_log_paths(
     return sorted(paths)
 
 
+def _usable_local_log_paths(local_log_paths: List[str]) -> List[str]:
+    return [path for path in local_log_paths if path and os.path.isfile(path)]
+
+
 def gather_sync_log_paths(
     local_log_paths: List[str],
     sync_config: SyncConfig,
@@ -110,17 +115,34 @@ def gather_sync_log_paths(
     if not sync_folder or not os.path.isdir(sync_folder):
         return paths, 1
 
+    usable_local = _usable_local_log_paths(paths)
+    if not usable_local:
+        own_snapshot = snapshot_path(sync_folder, sync_config.machine_id, vw_year)
+        if os.path.isfile(own_snapshot):
+            paths = [own_snapshot]
+
     remote_paths = discover_remote_log_paths(sync_folder, sync_config.machine_id, vw_year)
     for remote_path in remote_paths:
         if remote_path not in paths:
             paths.append(remote_path)
 
-    machine_count = 1 + len(remote_paths)
+    if usable_local:
+        machine_count = 1 + len(remote_paths)
+    else:
+        machine_count = max(len(paths), 1)
     return paths, machine_count
 
 
 def assignments_path(sync_folder: str, machine_id: str, vw_year: int) -> str:
     return os.path.join(snapshot_dir(sync_folder, machine_id, vw_year), ASSIGNMENTS_FILENAME)
+
+
+def catalog_path(sync_folder: str) -> str:
+    return os.path.join(sync_folder, CATALOG_FILENAME)
+
+
+def write_catalog_json(path: str, payload: dict) -> None:
+    _atomic_write_json(path, payload)
 
 
 def _read_json_file(path: str) -> dict:

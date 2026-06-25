@@ -86,6 +86,24 @@ class Repository:
             row = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
         return Client.from_row(row) if row else None
 
+    def find_client_by_code(self, code: str) -> Optional[Client]:
+        normalized = str(code or "").strip()
+        if not normalized:
+            return None
+        for client in self.list_clients(active_only=False):
+            if client.code and client.code.strip().lower() == normalized.lower():
+                return client
+        return None
+
+    def find_client_by_normalized_name(self, name: str) -> Optional[Client]:
+        target = str(name or "").strip().lower()
+        if not target:
+            return None
+        for client in self.list_clients(active_only=False):
+            if client.name.strip().lower() == target:
+                return client
+        return None
+
     def update_client(self, client: Client) -> Client:
         if client.id is None:
             raise ValueError("client.id is required for update")
@@ -352,10 +370,12 @@ class Repository:
                 "UPDATE session_adjustments SET project_id='' WHERE project_id=?",
                 (project_code,),
             )
-            conn.execute(
-                "DELETE FROM app_settings WHERE key=?",
-                (f"budget_hours:{project_code}",),
-            )
+            for key in (
+                f"budget_hours:{project_code}",
+                f"budget_money:{project_code}",
+                f"budget_type:{project_code}",
+            ):
+                conn.execute("DELETE FROM app_settings WHERE key=?", (key,))
             conn.execute("DELETE FROM billable_projects WHERE id=?", (project.id,))
 
     # Alias rules

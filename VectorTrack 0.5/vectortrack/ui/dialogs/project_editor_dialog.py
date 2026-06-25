@@ -8,6 +8,7 @@ from typing import Any
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QGridLayout,
@@ -28,6 +29,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from vectortrack.budget import (
+    BudgetType,
+    ProjectBudget,
+    load_project_budget,
+    migrate_project_budget,
+    save_project_budget,
+)
 from vectortrack.models import AliasRule, BillableProject, Client
 from vectortrack.ui.formatting import project_display_name, resolve_project_code
 
@@ -41,12 +49,14 @@ class ProjectEditorDialog(QDialog):
         *,
         file_assignments: dict[str, str] | None = None,
         on_unassign_file: Callable[[str], None] | None = None,
+        on_catalog_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.repository = repository
         self._initial_project_code = (initial_project_code or "").strip()
         self._file_assignments = file_assignments if file_assignments is not None else {}
         self._on_unassign_file = on_unassign_file
+        self._on_catalog_changed = on_catalog_changed
         self._projects: list[BillableProject] = []
         self.setWindowTitle("Project Editor")
         self.resize(980, 680)
@@ -76,11 +86,14 @@ class ProjectEditorDialog(QDialog):
         self.hourly_rate.setRange(0, 10000)
         self.hourly_rate.setDecimals(2)
         self.hourly_rate.setValue(75.0)
-        self.budget_hours = QDoubleSpinBox()
-        self.budget_hours.setRange(0, 100000)
-        self.budget_hours.setDecimals(2)
-        self.budget_hours.setSuffix(" h")
-        self.budget_hours.setToolTip("Set to 0 for no budget. Drives the progress bar on the Projects tab.")
+        self.budget_type = QComboBox()
+        self.budget_type.addItems(["No budget", "Hours", "Money"])
+        self.budget_type.setToolTip("Track progress against hours or a dollar amount — not both.")
+        self.budget_type.currentIndexChanged.connect(self._on_budget_type_changed)
+        self.budget_amount = QDoubleSpinBox()
+        self.budget_amount.setRange(0, 10000000)
+        self.budget_amount.setDecimals(2)
+        self.budget_amount.setToolTip("Drives the progress bar on the Projects tab.")
         self.invoice_number = QLineEdit()
         self.invoice_number.setPlaceholderText("Invoice # when locking")
         self.lock_status = QLabel("Unlocked")
@@ -94,8 +107,13 @@ class ProjectEditorDialog(QDialog):
         details_layout.addWidget(self.project_name, 1, 1, 1, 3)
         details_layout.addWidget(QLabel("Hourly Rate"), 2, 0)
         details_layout.addWidget(self.hourly_rate, 2, 1)
-        details_layout.addWidget(QLabel("Budget (hours)"), 2, 2)
-        details_layout.addWidget(self.budget_hours, 2, 3)
+        details_layout.addWidget(QLabel("Budget"), 2, 2)
+        budget_row = QHBoxLayout()
+        budget_row.addWidget(self.budget_type)
+        budget_row.addWidget(self.budget_amount, 1)
+        budget_widget = QWidget()
+        budget_widget.setLayout(budget_row)
+        details_layout.addWidget(budget_widget, 2, 3)
         details_layout.addWidget(QLabel("Invoice #"), 3, 0)
         details_layout.addWidget(self.invoice_number, 3, 1)
         details_layout.addWidget(QLabel("Lock Status"), 3, 2)
@@ -241,7 +259,9 @@ class ProjectEditorDialog(QDialog):
         self.project_code.clear()
         self.project_name.clear()
         self.hourly_rate.setValue(75.0)
-        self.budget_hours.setValue(0.0)
+        self.budget_type.setCurrentIndex(0)
+        self.budget_amount.setValue(0.0)
+        self._apply_budget_type_ui(BudgetType.NONE)
         self.invoice_number.clear()
         self.alias_entry.clear()
         self.alias_list.clear()
@@ -264,35 +284,51 @@ class ProjectEditorDialog(QDialog):
         self.hourly_rate.setEnabled(enabled)
         self.save_btn.setEnabled(enabled)
 
-    def _budget_setting_key(self, project_code: str) -> str:
-        return f"budget_hours:{project_code}"
+    def _apply_budget_type_ui(self, budget_type: BudgetType) -> None:
+        enabled = budget_type != BudgetType.NONE
+        self.budget_amount.setEnabled(enabled)
+        if budget_type == BudgetType.MONEY:
+            self.budget_amount.setPrefix("$")
+            self.budget_amount.setSuffix("")
+        elif budget_type == BudgetType.HOURS:
+            self.budget_amount.setPrefix("")
+            self.budget_amount.setSuffix(" h")
+        else:
+            self.budget_amount.setPrefix("")
+            self.budget_amount.setSuffix("")
+            self.budget_amount.setValue(0.0)
 
-    def _load_budget_hours(self, project_code: str) -> float:
-        raw = self.repository.get_setting(self._budget_setting_key(project_code), "0") or "0"
-        try:
-            hours = float(raw)
-        except ValueError:
-            hours = 0.0
-        self.budget_hours.setValue(hours)
-        return hours
+    def _on_budget_type_changed(self, index: int) -> None:
+        budget_type = {
+            0: BudgetType.NONE,
+            1: BudgetType.HOURS,
+            2: BudgetType.MONEY,
+        }.get(index, BudgetType.NONE)
+        self._apply_budget_type_ui(budget_type)
 
-    def _save_budget_hours(self, project_code: str) -> None:
-        hours = float(self.budget_hours.value())
-        self.repository.set_setting(self._budget_setting_key(project_code), f"{hours:.2f}")
+    def _budget_from_form(self) -> ProjectBudget:
+        index = self.budget_type.currentIndex()
+        amount = float(self.budget_amount.value())
+        if index == 1 and amount > 0:
+            return ProjectBudget(BudgetType.HOURS, amount)
+        if index == 2 and amount > 0:
+            return ProjectBudget(BudgetType.MONEY, amount)
+        return ProjectBudget(BudgetType.NONE, 0.0)
 
-    def _migrate_budget_hours(self, old_code: str, new_code: str) -> None:
-        if not old_code or old_code == new_code:
-            return
-        old_key = self._budget_setting_key(old_code)
-        new_key = self._budget_setting_key(new_code)
-        raw = self.repository.get_setting(old_key, "0") or "0"
-        try:
-            hours = float(raw)
-        except ValueError:
-            hours = 0.0
-        if hours > 0:
-            self.repository.set_setting(new_key, f"{hours:.2f}")
-        self.repository.set_setting(old_key, "0")
+    def _load_budget(self, project_code: str) -> ProjectBudget:
+        budget = load_project_budget(self.repository, project_code)
+        if budget.budget_type == BudgetType.MONEY:
+            self.budget_type.setCurrentIndex(2)
+        elif budget.budget_type == BudgetType.HOURS:
+            self.budget_type.setCurrentIndex(1)
+        else:
+            self.budget_type.setCurrentIndex(0)
+        self._apply_budget_type_ui(budget.budget_type)
+        self.budget_amount.setValue(budget.amount if budget.has_budget else 0.0)
+        return budget
+
+    def _save_budget(self, project_code: str) -> None:
+        save_project_budget(self.repository, project_code, self._budget_from_form())
 
     def _session_stats_by_file(self, project_code: str) -> dict[str, dict[str, Any]]:
         stats: dict[str, dict[str, Any]] = {}
@@ -399,7 +435,7 @@ class ProjectEditorDialog(QDialog):
         if project_code:
             self._refresh_assigned_files(project_code)
 
-    def _refresh_summary(self, project_code: str, *, alias_count: int, budget_hours: float) -> None:
+    def _refresh_summary(self, project_code: str, *, alias_count: int, budget: ProjectBudget) -> None:
         sessions = self.repository.list_sessions(project_id=project_code, include_open=True, limit=15000)
         tracked = sum(session.active_duration.total_seconds() / 3600.0 for session in sessions)
         billable = sum(float(session.billable_amount) for session in sessions)
@@ -408,19 +444,29 @@ class ProjectEditorDialog(QDialog):
         self.summary_billable.setText(f"${billable:.2f} billable")
         self.summary_aliases.setText(f"{alias_count} alias{'es' if alias_count != 1 else ''}")
 
-        if budget_hours <= 0:
+        if not budget.has_budget:
             self.budget_progress.hide()
             return
-        progress_pct = max(0, min(100, int((tracked / budget_hours) * 100)))
+        if budget.budget_type == BudgetType.MONEY:
+            used, limit = billable, budget.amount
+            detail = f"${used:.2f} / ${limit:.2f}"
+        else:
+            used, limit = tracked, budget.amount
+            detail = f"{used:.1f} / {limit:.1f} h"
+        progress_pct = max(0, min(100, int((used / limit) * 100)))
         self.budget_progress.setValue(progress_pct)
-        self.budget_progress.setFormat(f"Budget: {progress_pct}% ({tracked:.1f} / {budget_hours:.1f} h)")
-        if tracked > budget_hours:
+        self.budget_progress.setFormat(f"Budget: {progress_pct}% ({detail})")
+        if used > limit:
             self.budget_progress.setStyleSheet("QProgressBar::chunk { background-color: #c44242; }")
-        elif tracked >= budget_hours * 0.8:
+        elif used >= limit * 0.8:
             self.budget_progress.setStyleSheet("QProgressBar::chunk { background-color: #d4a72c; }")
         else:
             self.budget_progress.setStyleSheet("QProgressBar::chunk { background-color: #2a9d5a; }")
         self.budget_progress.show()
+
+    def _notify_catalog_changed(self) -> None:
+        if self._on_catalog_changed is not None:
+            self._on_catalog_changed()
 
     def _selected_project_code(self) -> str:
         current = self.project_list.currentItem()
@@ -457,7 +503,8 @@ class ProjectEditorDialog(QDialog):
                 hourly_rate=float(self.hourly_rate.value()),
             )
         )
-        self._save_budget_hours(resolved_code)
+        self._save_budget(resolved_code)
+        self._notify_catalog_changed()
         self._refresh_projects()
         self._select_project_by_code(resolved_code)
 
@@ -471,7 +518,8 @@ class ProjectEditorDialog(QDialog):
             QMessageBox.warning(self, "Project missing", "Selected project was not found.")
             return
         if project.is_locked:
-            self._save_budget_hours(project_code)
+            self._save_budget(project_code)
+            self._notify_catalog_changed()
             QMessageBox.information(
                 self,
                 "Budget saved",
@@ -521,11 +569,12 @@ class ProjectEditorDialog(QDialog):
             return
 
         if resolved_code != project_code:
-            self._migrate_budget_hours(project_code, resolved_code)
+            migrate_project_budget(self.repository, project_code, resolved_code)
             for path, assigned_code in list(self._file_assignments.items()):
                 if assigned_code == project_code:
                     self._file_assignments[path] = resolved_code
-        self._save_budget_hours(resolved_code)
+        self._save_budget(resolved_code)
+        self._notify_catalog_changed()
 
         self._refresh_projects()
         self._select_project_by_code(resolved_code)
@@ -548,7 +597,7 @@ class ProjectEditorDialog(QDialog):
         display_code = "" if stored_code == project.name.strip() else stored_code
         self.project_code.setText(display_code)
         self.hourly_rate.setValue(float(project.hourly_rate))
-        budget_hours = self._load_budget_hours(project_code)
+        budget = self._load_budget(project_code)
         self.invoice_number.setText(project.invoice_number or "")
 
         alias_rules = self.repository.list_alias_rules(project_id=project.id, active_only=False)
@@ -562,15 +611,17 @@ class ProjectEditorDialog(QDialog):
             self.alias_entry.setEnabled(False)
             self._set_form_enabled(False)
             self.save_btn.setEnabled(True)
-            self.budget_hours.setEnabled(True)
+            self.budget_type.setEnabled(True)
+            self.budget_amount.setEnabled(budget.budget_type != BudgetType.NONE)
         else:
             self.lock_status.setText("Unlocked")
             self.lock_btn.setText("Lock Project")
             self.alias_entry.setEnabled(True)
             self._set_form_enabled(True)
-            self.budget_hours.setEnabled(True)
+            self.budget_type.setEnabled(True)
+            self.budget_amount.setEnabled(budget.budget_type != BudgetType.NONE)
 
-        self._refresh_summary(project_code, alias_count=len(alias_rules), budget_hours=budget_hours)
+        self._refresh_summary(project_code, alias_count=len(alias_rules), budget=budget)
         self._refresh_assigned_files(project_code)
 
     def _toggle_lock(self) -> None:
@@ -589,6 +640,7 @@ class ProjectEditorDialog(QDialog):
                 QMessageBox.warning(self, "Invoice required", "Enter an invoice number before locking.")
                 return
             self.repository.set_project_lock(project_code, locked=True, invoice_number=invoice)
+        self._notify_catalog_changed()
         self._refresh_projects()
         self._load_project_details(project_code)
 
@@ -607,6 +659,7 @@ class ProjectEditorDialog(QDialog):
             return
         self.repository.upsert_alias_rule(AliasRule(project_id=project.id, alias_pattern=alias))
         self.alias_entry.clear()
+        self._notify_catalog_changed()
         self._load_project_details(project_code)
 
     def _delete_project(self) -> None:
@@ -653,4 +706,5 @@ class ProjectEditorDialog(QDialog):
                 else:
                     self._file_assignments.pop(path, None)
 
+        self._notify_catalog_changed()
         self._refresh_projects()

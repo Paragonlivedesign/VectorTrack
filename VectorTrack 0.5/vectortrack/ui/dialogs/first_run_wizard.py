@@ -2,26 +2,40 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSettings
-
-from vectortrack.config import DEFAULT_IDLE_PAUSE_ENABLED, IDLE_TIMEOUT_HELPER_TEXT, format_version
-from vectortrack.log_parser import VW_LOG_TIME_PREFERENCE_HELP
+from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QFrame,
     QLabel,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWizard,
     QWizardPage,
 )
 
+from vectortrack.config import DEFAULT_IDLE_PAUSE_ENABLED, IDLE_TIMEOUT_HELPER_TEXT, format_version
+from vectortrack.log_parser import VW_LOG_TIME_PREFERENCE_HELP
+from vectortrack.ui.app_icon import app_icon
+from vectortrack.ui.layout_utils import scale_px
+
 
 class FirstRunWizard(QWizard):
+    _PAGE_MARGINS = (20, 16, 20, 16)
+    _PAGE_SPACING = 12
+
     def __init__(self, settings: QSettings, parent=None) -> None:
         super().__init__(parent)
         self.settings = settings
         self.setWindowTitle("VectorTrack Setup Wizard")
+        self.setWindowIcon(app_icon(self))
+        self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setOption(QWizard.WizardOption.NoBackButtonOnStartPage, True)
+        min_w, min_h = scale_px(560), scale_px(460)
+        self.setMinimumSize(min_w, min_h)
+        self.resize(min_w, min_h)
 
         self.import_logs_check = QCheckBox("Import Vectorworks log history")
         self.import_logs_check.setChecked(settings.value("import_vw_log_history", True, type=bool))
@@ -70,43 +84,72 @@ class FirstRunWizard(QWizard):
         self.addPage(self._appearance_page())
         self.addPage(self._page("Finish", "Click Finish to save these defaults.\nYou can update settings any time."))
 
-    @staticmethod
-    def _page(title: str, text: str) -> QWizardPage:
-        page = QWizardPage()
-        page.setTitle(title)
+    @classmethod
+    def _configure_page_layout(cls, page: QWizardPage) -> QVBoxLayout:
+        page.setTitle("")
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(*cls._PAGE_MARGINS)
+        layout.setSpacing(cls._PAGE_SPACING)
+        return layout
+
+    @classmethod
+    def _title_label(cls, title: str) -> QLabel:
+        label = QLabel(title)
+        title_font = QFont(label.font())
+        title_font.setPointSize(title_font.pointSize() + 4)
+        title_font.setWeight(QFont.Weight.DemiBold)
+        label.setFont(title_font)
+        label.setWordWrap(True)
+        return label
+
+    @classmethod
+    def _body_label(cls, text: str) -> QLabel:
         label = QLabel(text)
         label.setWordWrap(True)
-        layout.addWidget(label)
-        layout.addStretch()
+        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        return label
+
+    @classmethod
+    def _scrollable_body(cls, text: str) -> QScrollArea:
+        label = cls._body_label(text)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(label)
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        return scroll
+
+    @classmethod
+    def _page(cls, title: str, text: str) -> QWizardPage:
+        page = QWizardPage()
+        layout = cls._configure_page_layout(page)
+        layout.addWidget(cls._title_label(title))
+        layout.addWidget(cls._scrollable_body(text), 1)
         return page
 
-    @staticmethod
-    def _checkbox_page(title: str, text: str, checkbox: QCheckBox) -> QWizardPage:
+    @classmethod
+    def _checkbox_page(cls, title: str, text: str, checkbox: QCheckBox) -> QWizardPage:
         page = QWizardPage()
-        page.setTitle(title)
-        layout = QVBoxLayout(page)
-        label = QLabel(text)
-        label.setWordWrap(True)
-        layout.addWidget(label)
+        layout = cls._configure_page_layout(page)
+        layout.addWidget(cls._title_label(title))
+        layout.addWidget(cls._scrollable_body(text), 1)
         layout.addWidget(checkbox)
-        layout.addStretch()
         return page
 
     def _appearance_page(self) -> QWizardPage:
         page = QWizardPage()
-        page.setTitle("Appearance and Idle")
-        layout = QVBoxLayout(page)
+        layout = self._configure_page_layout(page)
+        layout.addWidget(self._title_label("Appearance and Idle"))
         layout.addWidget(self.dark_mode_check)
         layout.addWidget(self.idle_pause_enabled)
         idle_label = QLabel("Idle timeout (minutes)")
         layout.addWidget(idle_label)
         layout.addWidget(self.idle_minutes)
-        idle_help = QLabel(IDLE_TIMEOUT_HELPER_TEXT)
-        idle_help.setWordWrap(True)
-        layout.addWidget(idle_help)
+        layout.addWidget(self._scrollable_body(IDLE_TIMEOUT_HELPER_TEXT), 1)
         self._sync_idle_controls(self.idle_pause_enabled.isChecked())
-        layout.addStretch()
         return page
 
     def _sync_idle_controls(self, enabled: bool) -> None:

@@ -8,6 +8,14 @@ from PyQt6.QtCore import QItemSelection, QItemSelectionModel, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import QProgressBar, QTableWidget, QTableWidgetItem, QWidget
 
+from vectortrack.budget import (
+    BudgetType,
+    ProjectBudget,
+    budget_progress_percent,
+    budget_usage,
+    format_budget_display,
+)
+
 
 class ProjectSummaryTable(QTableWidget):
     view_sessions_requested = pyqtSignal(str)
@@ -21,7 +29,12 @@ class ProjectSummaryTable(QTableWidget):
         self.verticalHeader().setVisible(False)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.horizontalHeader().setStretchLastSection(True)
+        configure_compact_table(
+            self,
+            stretch_column=0,
+            content_columns=[1, 2, 3, 4],
+            fixed_columns={5: 110},
+        )
         self.cellDoubleClicked.connect(self._on_double_click)
 
     def set_rows(self, rows: Iterable[dict[str, object]]) -> None:
@@ -36,14 +49,31 @@ class ProjectSummaryTable(QTableWidget):
                 row = self.rowCount()
                 self.insertRow(row)
                 tracked = float(data.get("tracked_hours", 0.0))
-                budget = float(data.get("budget_hours", 0.0))
-                progress_pct = 0 if budget <= 0 else max(0, min(100, int((tracked / budget) * 100)))
+                billable = float(data.get("billable", 0.0))
+                budget_type = str(data.get("budget_type", BudgetType.NONE.value))
+                budget_amount = float(data.get("budget_amount", 0.0))
+                if budget_type == BudgetType.MONEY.value and budget_amount > 0:
+                    budget = ProjectBudget(BudgetType.MONEY, budget_amount)
+                elif budget_type == BudgetType.HOURS.value and budget_amount > 0:
+                    budget = ProjectBudget(BudgetType.HOURS, budget_amount)
+                else:
+                    budget = ProjectBudget(BudgetType.NONE, 0.0)
+                used, limit = budget_usage(
+                    budget,
+                    tracked_hours=tracked,
+                    billable=billable,
+                )
+                progress_pct = budget_progress_percent(
+                    budget,
+                    tracked_hours=tracked,
+                    billable=billable,
+                )
                 columns = [
                     str(data.get("project", "")),
                     f'${float(data.get("rate", 0.0)):.2f}',
                     f"{tracked:.2f}h",
-                    f'${float(data.get("billable", 0.0)):.2f}',
-                    "N/A" if budget <= 0 else f"{budget:.2f}h",
+                    f"${billable:.2f}",
+                    format_budget_display(budget),
                 ]
                 for col, value in enumerate(columns):
                     item = QTableWidgetItem(value)
@@ -54,16 +84,21 @@ class ProjectSummaryTable(QTableWidget):
                 bar.setRange(0, 100)
                 bar.setValue(progress_pct)
                 bar.setFormat(f"{progress_pct}%")
-                warning = budget > 0 and tracked >= (budget * 0.8)
-                over_budget = budget > 0 and tracked > budget
-                if budget > 0 and tracked > budget:
+                warning = limit > 0 and used >= (limit * 0.8)
+                over_budget = limit > 0 and used > limit
+                if over_budget:
                     bar.setStyleSheet("QProgressBar::chunk { background-color: #c44242; }")
-                elif budget > 0 and tracked >= (budget * 0.8):
+                elif warning:
                     bar.setStyleSheet("QProgressBar::chunk { background-color: #d4a72c; }")
                 else:
                     bar.setStyleSheet("QProgressBar::chunk { background-color: #2a9d5a; }")
                 self.setCellWidget(row, 5, bar)
-                self._style_budget_cells(row, warning=warning, over_budget=over_budget)
+                self._style_budget_cells(
+                    row,
+                    warning=warning,
+                    over_budget=over_budget,
+                    money_budget=budget.budget_type == BudgetType.MONEY,
+                )
         finally:
             self.setUpdatesEnabled(True)
         self._restore_selection(selected_code)
@@ -92,7 +127,7 @@ class ProjectSummaryTable(QTableWidget):
             return ""
         return str(item.data(Qt.ItemDataRole.UserRole) or "")
 
-    def _style_budget_cells(self, row: int, *, warning: bool, over_budget: bool) -> None:
+    def _style_budget_cells(self, row: int, *, warning: bool, over_budget: bool, money_budget: bool) -> None:
         color = None
         if over_budget:
             color = QColor("#f2b8b5")
@@ -101,7 +136,8 @@ class ProjectSummaryTable(QTableWidget):
         if color is None:
             return
         brush = QBrush(color)
-        for col in (2, 4):
+        usage_col = 3 if money_budget else 2
+        for col in (usage_col, 4):
             item = self.item(row, col)
             if item is not None:
                 item.setBackground(brush)

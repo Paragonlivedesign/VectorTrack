@@ -31,6 +31,7 @@ from vectortrack.services.report_service import ReportService
 from vectortrack.services.session_aggregator import SessionAggregator, UnifiedSession
 from vectortrack.ui.dialogs.session_edit_dialog import SessionEditDialog
 from vectortrack.ui.heatmap_widget import HeatmapWidget
+from vectortrack.ui.layout_utils import adaptive_dialog_size, configure_compact_table, scale_px
 
 
 class SessionExplorerDialog(QDialog):
@@ -63,45 +64,71 @@ class SessionExplorerDialog(QDialog):
 
         title_target = Path(target).name if mode == "file" else target
         self.setWindowTitle(f"Sessions: {title_target}")
-        self.setMinimumSize(980, 640)
+        min_size, default_size = adaptive_dialog_size((900, 560), (980, 640))
+        self.setMinimumSize(*min_size)
+        self.resize(*default_size)
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(scale_px(8), scale_px(8), scale_px(8), scale_px(8))
+        root.setSpacing(scale_px(6))
         self.summary_label = QLabel("")
         root.addWidget(self.summary_label)
 
         self.tabs = QTabWidget(self)
+        self.tabs.setDocumentMode(True)
         self.list_tab = QWidget(self)
         list_layout = QVBoxLayout(self.list_tab)
+        list_layout.setContentsMargins(0, 0, 0, 0)
         self.table = QTableWidget(0, 9, self.list_tab)
         self.table.setHorizontalHeaderLabels(
             ["Start", "End", "Hours", "File", "Machine", "Source", "Amount", "Status", "Actions"]
         )
-        self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSortingEnabled(True)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        list_layout.addWidget(self.table)
+        configure_compact_table(
+            self.table,
+            stretch_column=3,
+            content_columns=[0, 1, 2, 5, 6, 7],
+            fixed_columns={8: 170},
+        )
+        list_layout.addWidget(self.table, 1)
         self.tabs.addTab(self.list_tab, "List")
 
         self.calendar_tab = QWidget(self)
         calendar_layout = QVBoxLayout(self.calendar_tab)
-        self.heatmap = HeatmapWidget(self.calendar_tab, show_day_details=False)
+        calendar_layout.setContentsMargins(0, 0, 0, 0)
+        calendar_layout.setSpacing(0)
+        calendar_splitter = QSplitter(Qt.Orientation.Vertical, self.calendar_tab)
+        self.heatmap = HeatmapWidget(calendar_splitter, show_day_details=False)
         self.heatmap.day_clicked.connect(self._on_day_clicked)
-        calendar_layout.addWidget(self.heatmap)
-        self.day_list = QTableWidget(0, 5, self.calendar_tab)
+        calendar_splitter.addWidget(self.heatmap)
+        self.day_list = QTableWidget(0, 5, calendar_splitter)
         self.day_list.setHorizontalHeaderLabels(["Start", "End", "Hours", "Machine", "Source"])
-        self.day_list.verticalHeader().setVisible(False)
-        calendar_layout.addWidget(self.day_list)
+        configure_compact_table(
+            self.day_list,
+            stretch_column=3,
+            content_columns=[0, 1, 2, 4],
+        )
+        calendar_splitter.addWidget(self.day_list)
+        calendar_splitter.setStretchFactor(0, 0)
+        calendar_splitter.setStretchFactor(1, 1)
+        calendar_splitter.setSizes([scale_px(290), scale_px(280)])
+        calendar_layout.addWidget(calendar_splitter, 1)
         self.tabs.addTab(self.calendar_tab, "Calendar")
-        root.addWidget(self.tabs)
+        root.addWidget(self.tabs, 1)
 
         self.conflict_label = QLabel("")
         root.addWidget(self.conflict_label)
 
         self.conflict_table = QTableWidget(0, 4, self)
         self.conflict_table.setHorizontalHeaderLabels(["Session A", "Session B", "Issue", "Actions"])
-        self.conflict_table.verticalHeader().setVisible(False)
-        self.conflict_table.horizontalHeader().setStretchLastSection(True)
+        configure_compact_table(
+            self.conflict_table,
+            stretch_column=2,
+            content_columns=[0, 1],
+            fixed_columns={3: 320},
+        )
+        self.conflict_table.setMaximumHeight(scale_px(140))
         root.addWidget(self.conflict_table)
 
         buttons = QHBoxLayout()
@@ -449,9 +476,10 @@ class SessionExplorerDialog(QDialog):
 
     def _on_day_clicked(self, selected_day: date) -> None:
         self._day_filter = selected_day
-        self.tabs.setCurrentWidget(self.list_tab)
         self._populate_summary()
         self._populate_table()
+        self._populate_calendar()
+        self.tabs.setCurrentWidget(self.calendar_tab)
 
     def _export_csv(self) -> None:
         path, _ = QFileDialog.getSaveFileName(

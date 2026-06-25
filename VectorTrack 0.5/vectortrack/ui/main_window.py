@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from vectortrack import config
 from vectortrack.activity_monitor import ActivityMonitor
+from vectortrack.budget import budget_usage, load_project_budget
 from vectortrack.config import format_version
 from vectortrack.db.repository import Repository
 from vectortrack.models import BillableProject, Client, TimeSession
@@ -44,6 +45,14 @@ from vectortrack.services.autostart import set_enabled as set_autostart_enabled
 from vectortrack.services.hotkey_service import HotkeyService
 from vectortrack.services.notification_service import NotificationService
 from vectortrack.services.project_sync import sync_orphan_project_codes
+from vectortrack.services.catalog_sync import (
+    CatalogApplySummary,
+    build_catalog_view,
+    filter_orphan_project_codes,
+    push_catalog,
+    read_catalog,
+    sync_catalog,
+)
 from vectortrack.services.tracking_service import TrackingService
 from vectortrack.ui.clients_tab import ClientsTab
 from vectortrack.ui.dashboard_strip import DashboardStrip
@@ -53,12 +62,14 @@ from vectortrack.ui.hud_window import HUDWindow
 from vectortrack.ui.formatting import project_display_name, resolve_project_code
 from vectortrack.ui.open_files_table import OpenFilesTable
 from vectortrack.ui.project_summary_table import ProjectSummaryTable
+from vectortrack.ui.layout_utils import adaptive_window_size, scale_px
 from vectortrack.ui.theme import apply_theme
 from vectortrack.ui.app_icon import app_icon
 from vectortrack.ui.tray import VectorTrackTray
 from vectortrack.ui.dialogs.about_dialog import AboutDialog
 from vectortrack.ui.dialogs.backup_restore_dialog import BackupRestoreDialog
 from vectortrack.ui.dialogs.bug_report_dialog import BugReportDialog
+from vectortrack.ui.dialogs.catalog_sync_dialog import CatalogSyncDialog
 from vectortrack.ui.dialogs.client_editor_dialog import ClientEditorDialog
 from vectortrack.ui.dialogs.donate_dialog import DonateDialog
 from vectortrack.ui.dialogs.first_run_wizard import FirstRunWizard
@@ -153,7 +164,9 @@ class MainWindow(QMainWindow):
         self.file_project_overrides: dict[str, str] = self._load_project_overrides()
         self.merged_assignments: dict[str, str] = {}
         self._assignments_dirty = False
+        self._catalog_dirty = False
         self._machine_label_cache: dict[str, str] = {}
+        self._catalog_pending_count = 0
         self._refresh_merged_assignments()
         self._last_log_sync = datetime.min
         self._last_sync_push = datetime.min
@@ -178,8 +191,10 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("VectorTrack")
         self.setWindowIcon(app_icon(self))
-        self.setMinimumSize(1000, 680)
-        self.resize(1320, 820)
+        min_size, default_size = adaptive_window_size()
+        self.setMinimumSize(*min_size)
+        if not self.settings.value("mainwindow_geometry"):
+            self.resize(*default_size)
 
         self.tray = VectorTrackTray(self)
         self.tray.show()
@@ -221,11 +236,7 @@ class MainWindow(QMainWindow):
         self._setup_notifications()
         self.hotkey_service.start()
 
-        QTimer.singleShot(50, self._show_first_run_wizard_if_needed)
-        QTimer.singleShot(200, self._show_vectorworks_setup_prompts)
-        QTimer.singleShot(0, self._tick)
-        QTimer.singleShot(150, self._refresh_history)
-        QTimer.singleShot(500, lambda: self._maybe_push_log_sync(force=True))
+        QTimer.singleShot(0, self._run_startup_sequence)
 
     def _apply_idle_settings(self) -> None:
         self.tracking_service.set_idle_pause_enabled(self.idle_pause_enabled)
@@ -294,20 +305,20 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         container = QWidget(self)
         root = QVBoxLayout(container)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
+        root.setContentsMargins(scale_px(6), scale_px(6), scale_px(6), scale_px(6))
+        root.setSpacing(scale_px(6))
         self.setCentralWidget(container)
 
         self.dashboard_strip = DashboardStrip(container)
         root.addWidget(self.dashboard_strip)
 
-        splitter = QSplitter(Qt.Orientation.Vertical, container)
-        root.addWidget(splitter, 1)
+        self._vertical_splitter = QSplitter(Qt.Orientation.Vertical, container)
+        root.addWidget(self._vertical_splitter, 1)
 
-        top_panel = QWidget(splitter)
+        top_panel = QWidget(self._vertical_splitter)
         top_layout = QVBoxLayout(top_panel)
         top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(8)
+        top_layout.setSpacing(scale_px(6))
         open_files_header = QHBoxLayout()
         open_files_header.addWidget(QLabel("Open Files"))
         open_files_header.addStretch()
@@ -317,24 +328,28 @@ class MainWindow(QMainWindow):
         top_layout.addLayout(open_files_header)
         self.open_files_table = OpenFilesTable(top_panel)
         self.project_summary_table = ProjectSummaryTable(top_panel)
+        self.open_files_table.setMaximumHeight(scale_px(220))
+        self.project_summary_table.setMaximumHeight(scale_px(180))
         self.open_files_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.project_summary_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.open_files_table.customContextMenuRequested.connect(self._show_open_files_context_menu)
         self.project_summary_table.customContextMenuRequested.connect(self._show_project_summary_context_menu)
-        top_layout.addWidget(self.open_files_table, 2)
-        top_layout.addWidget(self.project_summary_table, 1)
-        splitter.addWidget(top_panel)
+        top_layout.addWidget(self.open_files_table)
+        top_layout.addWidget(self.project_summary_table)
+        self._vertical_splitter.addWidget(top_panel)
 
-        self.bottom_tabs = QTabWidget(splitter)
+        self.bottom_tabs = QTabWidget(self._vertical_splitter)
+        self.bottom_tabs.setDocumentMode(True)
         self.history_browser = HistoryBrowser(self.bottom_tabs)
         self.heatmap_widget = HeatmapWidget(self.bottom_tabs)
         self.clients_tab = ClientsTab(self.repository, self.bottom_tabs)
         self.bottom_tabs.addTab(self.history_browser, "History")
         self.bottom_tabs.addTab(self.heatmap_widget, "Heatmap")
         self.bottom_tabs.addTab(self.clients_tab, "Clients")
-        splitter.addWidget(self.bottom_tabs)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
+        self._vertical_splitter.addWidget(self.bottom_tabs)
+        self._vertical_splitter.setStretchFactor(0, 0)
+        self._vertical_splitter.setStretchFactor(1, 1)
+        self._vertical_splitter.setChildrenCollapsible(False)
 
     def _create_actions(self) -> None:
         self.pause_action = QAction("Pause Tracking", self)
@@ -390,6 +405,7 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.settings_action)
         edit_menu.addAction("Manual Entry...", lambda: self._open_manual_entry(""))
         edit_menu.addAction("Project Editor...", self._show_project_editor)
+        edit_menu.addAction("Sync Catalog...", self._open_catalog_sync_dialog)
         edit_menu.addAction("Client Editor...", lambda: self._open_client_editor(None))
         edit_menu.addAction("Log Library...", self._open_log_library_dialog)
 
@@ -424,6 +440,12 @@ class MainWindow(QMainWindow):
         version_label = QLabel(format_version(include_product_name=False))
         version_label.setObjectName("muted")
         status.addWidget(version_label)
+        self._catalog_review_btn = QPushButton("")
+        self._catalog_review_btn.setFlat(True)
+        self._catalog_review_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._catalog_review_btn.hide()
+        self._catalog_review_btn.clicked.connect(self._open_catalog_sync_dialog)
+        status.addPermanentWidget(self._catalog_review_btn)
         self.setStatusBar(status)
 
     def _invoke_callback(self, fn: object) -> None:
@@ -436,6 +458,17 @@ class MainWindow(QMainWindow):
     def _apply_saved_theme(self) -> None:
         mode = "dark" if self.dark_mode_enabled else "light"
         apply_theme(QApplication.instance(), mode=mode)
+
+    def _run_startup_sequence(self) -> None:
+        """Run first-run prompts in order, then refresh the live UI."""
+        self._show_first_run_wizard_if_needed()
+        if not self.process_monitor.vectorworks_path:
+            self._vw_detect_mode = self._auto_detect_vectorworks()
+        self._show_vectorworks_setup_prompts()
+        self._tick()
+        self._refresh_history()
+        QTimer.singleShot(500, lambda: self._maybe_push_log_sync(force=True))
+        QTimer.singleShot(600, self._maybe_push_catalog_on_startup)
 
     def _show_first_run_wizard_if_needed(self) -> None:
         if self.settings.value("wizard_completed", False, type=bool):
@@ -516,6 +549,7 @@ class MainWindow(QMainWindow):
                 return
             dialog = VectorworksSetupDialog(
                 browse_directory=self.process_monitor.suggested_exe_browse_directory(),
+                initial_path=self.process_monitor.latest_known_exe() or "",
                 parent=self,
             )
             if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
@@ -624,6 +658,94 @@ class MainWindow(QMainWindow):
         self.settings.setValue("file_project_overrides", json.dumps(self.file_project_overrides))
         self._assignments_dirty = True
 
+    def _mark_catalog_dirty(self) -> None:
+        self._catalog_dirty = True
+
+    def _show_catalog_sync_summary(self, summary: CatalogApplySummary) -> None:
+        if not summary.has_changes:
+            return
+        parts: list[str] = []
+        if summary.clients_added:
+            parts.append(f"{summary.clients_added} client(s) added")
+        if summary.clients_updated:
+            parts.append(f"{summary.clients_updated} client(s) updated")
+        if summary.projects_added:
+            parts.append(f"{summary.projects_added} project(s) added")
+        if summary.projects_updated:
+            parts.append(f"{summary.projects_updated} project(s) updated")
+        if summary.fuzzy_merged:
+            pair = summary.fuzzy_merged[0]
+            parts.append(f"merged similar client '{pair[0]}' → '{pair[1]}'")
+            if len(summary.fuzzy_merged) > 1:
+                parts.append(f"(+{len(summary.fuzzy_merged) - 1} more)")
+        self.statusBar().showMessage(f"Catalog sync: {', '.join(parts)}", 6000)
+
+    def _maybe_push_catalog_on_startup(self) -> None:
+        self._maybe_push_catalog(force=True)
+        self._update_catalog_pending_nudge()
+
+    def _catalog_diff(self):
+        sync_folder = resolve_sync_folder(self.sync_config)
+        if not sync_folder or not self.sync_config.enabled or not os.path.isdir(sync_folder):
+            return None
+        return build_catalog_view(self.repository, read_catalog(sync_folder))
+
+    def _update_catalog_pending_nudge(self) -> None:
+        diff = self._catalog_diff()
+        if diff is None:
+            self._catalog_pending_count = 0
+            self._catalog_review_btn.hide()
+            return
+        self._catalog_pending_count = diff.pending_review_count
+        if self._catalog_pending_count <= 0:
+            self._catalog_review_btn.hide()
+            return
+        self._catalog_review_btn.setText(
+            f"Catalog: {self._catalog_pending_count} item(s) need review"
+        )
+        self._catalog_review_btn.show()
+
+    def _open_catalog_sync_dialog(self) -> None:
+        sync_folder = resolve_sync_folder(self.sync_config) or ""
+        dialog = CatalogSyncDialog(
+            self.repository,
+            sync_folder,
+            sync_enabled=self.sync_config.enabled,
+            parent=self,
+        )
+        dialog.catalog_changed.connect(self._on_catalog_review_changed)
+        dialog.exec()
+        self._update_catalog_pending_nudge()
+
+    def _on_catalog_review_changed(self) -> None:
+        self._mark_catalog_dirty()
+        self._maybe_push_catalog(force=True)
+        self._tick()
+        self._refresh_history()
+
+    def _maybe_push_catalog(self, *, force: bool = False) -> None:
+        if not self.sync_config.enabled or not self.sync_config.folder.strip():
+            return
+        if not force and not self._catalog_dirty:
+            return
+        sync_folder = resolve_sync_folder(self.sync_config)
+        if not sync_folder:
+            return
+        ok, _err = push_catalog(sync_folder, self.repository)
+        if ok:
+            self._catalog_dirty = False
+
+    def _sync_catalog_roundtrip(self) -> None:
+        sync_folder = resolve_sync_folder(self.sync_config)
+        if not sync_folder or not self.sync_config.enabled or not os.path.isdir(sync_folder):
+            return
+        _summary, ok, err = sync_catalog(sync_folder, self.repository)
+        if ok:
+            self._catalog_dirty = False
+        elif err:
+            self.statusBar().showMessage(f"Catalog sync failed: {err}", 8000)
+        self._update_catalog_pending_nudge()
+
     def _refresh_merged_assignments(self) -> None:
         sync_folder = resolve_sync_folder(self.sync_config)
         vw_year = self._current_vw_year()
@@ -643,6 +765,7 @@ class MainWindow(QMainWindow):
             }
             self._machine_label_cache = {}
         self._sync_orphan_project_assignments()
+        self._update_catalog_pending_nudge()
 
     def _effective_assigned_files(self) -> dict[str, str]:
         assigned = dict(self.merged_assignments)
@@ -763,12 +886,35 @@ class MainWindow(QMainWindow):
         for code in self.file_project_overrides.values():
             if code:
                 codes.add(str(code).strip())
+        for code in self.merged_assignments.values():
+            if code:
+                codes.add(str(code).strip())
         for session in self.repository.list_sessions(include_open=True, limit=15000):
             if session.project_id:
                 codes.add(str(session.project_id).strip())
+
+        missing_codes = [
+            code
+            for code in sorted(codes)
+            if code and self.repository.get_project_by_code(code) is None
+        ]
+        catalog = {}
+        sync_folder = resolve_sync_folder(self.sync_config)
+        if sync_folder and self.sync_config.enabled and os.path.isdir(sync_folder):
+            catalog = read_catalog(sync_folder)
+
+        stub_codes, catalog_only = filter_orphan_project_codes(missing_codes, catalog)
+        if catalog_only:
+            sample = ", ".join(catalog_only[:3])
+            suffix = f" (+{len(catalog_only) - 3} more)" if len(catalog_only) > 3 else ""
+            self.statusBar().showMessage(
+                f"Project code(s) in sync catalog need import: {sample}{suffix} — open Sync Catalog",
+                8000,
+            )
+
         created = sync_orphan_project_codes(
             self.repository,
-            codes,
+            stub_codes,
             default_rate=float(self.default_rate),
         )
         if created:
@@ -830,13 +976,15 @@ class MainWindow(QMainWindow):
 
     def _active_log_paths(self) -> list[str]:
         paths = self._local_log_paths()
-        if self.sync_config.enabled and paths:
+        if not self.sync_config.enabled:
+            return paths
+        if paths:
             self._maybe_push_log_sync()
-            paths, _machine_count = gather_sync_log_paths(
-                paths,
-                self.sync_config,
-                self._current_vw_year(),
-            )
+        paths, _machine_count = gather_sync_log_paths(
+            paths,
+            self.sync_config,
+            self._current_vw_year(),
+        )
         return paths
 
     def _log_stats_for_file(self, file_path: str, project_name: str) -> tuple[float, float]:
@@ -892,12 +1040,8 @@ class MainWindow(QMainWindow):
     def _rate_for_project(self, project_code: str) -> float:
         return self.repository.resolve_hourly_rate(project_code)
 
-    def _budget_for_project(self, project_code: str) -> float:
-        raw = self.repository.get_setting(f"budget_hours:{project_code}", "0")
-        try:
-            return max(0.0, float(raw or 0.0))
-        except Exception:
-            return 0.0
+    def _budget_for_project(self, project_code: str):
+        return load_project_budget(self.repository, project_code)
 
     def _setup_hotkeys(self) -> None:
         def toggle_pause() -> None:
@@ -944,22 +1088,31 @@ class MainWindow(QMainWindow):
                     self.notification_service.notify_log_delta(str(row["file_name"]), delta)
                     self._delta_notified[file_path] = delta
 
-        for row in rows:
-            project = str(row.get("project_code") or row.get("project") or "")
-            if not project or project == self.UNASSIGNED_PROJECT_LABEL:
+        project_totals: dict[str, dict[str, float]] = {}
+        for session in self.repository.list_sessions(include_open=True, limit=15000):
+            code = session.project_id
+            if not code:
                 continue
-            budget = self._budget_for_project(project)
-            if budget <= 0:
+            agg = project_totals.setdefault(code, {"tracked_hours": 0.0, "billable": 0.0})
+            agg["tracked_hours"] += session.active_duration.total_seconds() / 3600.0
+            agg["billable"] += float(session.billable_amount)
+        for project_code, totals in project_totals.items():
+            budget = self._budget_for_project(project_code)
+            if not budget.has_budget:
                 continue
-            tracked = float(row["past_hours"]) + float(row["live_hours"])
-            ratio = tracked / budget
+            used, limit = budget_usage(
+                budget,
+                tracked_hours=totals["tracked_hours"],
+                billable=totals["billable"],
+            )
+            ratio = used / limit
             level = "100" if ratio >= 1.0 else "80" if ratio >= config.BUDGET_WARN_PERCENT else ""
-            if not level or self._budget_notified.get(project) == level:
+            if not level or self._budget_notified.get(project_code) == level:
                 continue
-            if level == "80" and self._budget_notified.get(project) == "100":
+            if level == "80" and self._budget_notified.get(project_code) == "100":
                 continue
-            self._budget_notified[project] = level
-            self.notification_service.notify_budget_warning(project, ratio * 100.0)
+            self._budget_notified[project_code] = level
+            self.notification_service.notify_budget_warning(project_code, ratio * 100.0)
 
         now = datetime.now()
         if (
@@ -1127,8 +1280,11 @@ class MainWindow(QMainWindow):
 
     def _tick(self) -> None:
         if not self.process_monitor.vectorworks_path:
+            self._auto_detect_vectorworks()
+        if not self.process_monitor.vectorworks_path:
             self.statusBar().showMessage("Vectorworks executable not set")
             return
+        self.statusBar().clearMessage()
         self.tracking_service.tick()
         self._sync_project_overrides_to_tracking()
         rows = self._rows_from_tracking()
@@ -1199,7 +1355,8 @@ class MainWindow(QMainWindow):
                     "project": self._project_display(key),
                     "project_code": key,
                     **vals,
-                    "budget_hours": self._budget_for_project(key),
+                    "budget_type": (budget := self._budget_for_project(key)).budget_type.value,
+                    "budget_amount": budget.amount,
                 }
                 for key, vals in sorted(per_project.items())
             ]
@@ -1263,6 +1420,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_history(self) -> None:
         self._maybe_push_assignments()
+        self._maybe_push_catalog()
         self._refresh_merged_assignments()
         selected_project = self.history_browser.selected_project()
         start_limit = self.history_browser.from_filter.dateTime().toPyDateTime()
@@ -1508,30 +1666,42 @@ class MainWindow(QMainWindow):
                     "Log sync",
                     "Cross-machine log sync is enabled but no sync folder is set.",
                 )
-            elif not self._maybe_push_log_sync(force=True):
-                detail = self._last_sync_push_error or "Check that Vectorworks Log.txt is linked."
-                dest = snapshot_dir(
-                    self.sync_config.folder.strip(),
-                    self.sync_config.machine_id,
-                    self._current_vw_year(),
-                )
-                QMessageBox.warning(
-                    self,
-                    "Log sync",
-                    f"Could not write log snapshot.\n\n{detail}\n\nExpected folder:\n{dest}",
-                )
             else:
-                dest = snapshot_dir(
-                    self.sync_config.folder.strip(),
-                    self.sync_config.machine_id,
-                    self._current_vw_year(),
-                )
-                QMessageBox.information(
-                    self,
-                    "Log sync",
-                    f"Log snapshot saved.\n\n{dest}",
-                )
-            self._maybe_push_assignments(force=True)
+                self._maybe_push_assignments(force=True)
+                self._sync_catalog_roundtrip()
+                self._update_catalog_pending_nudge()
+                synced_paths = self._active_log_paths()
+                self._refresh_history()
+                local_paths = self._local_log_paths()
+                if local_paths:
+                    if not self._maybe_push_log_sync(force=True):
+                        detail = self._last_sync_push_error or "Check that Vectorworks Log.txt is linked."
+                        dest = snapshot_dir(
+                            self.sync_config.folder.strip(),
+                            self.sync_config.machine_id,
+                            self._current_vw_year(),
+                        )
+                        QMessageBox.warning(
+                            self,
+                            "Log sync",
+                            f"Could not write log snapshot.\n\n{detail}\n\nExpected folder:\n{dest}",
+                        )
+                    else:
+                        dest = snapshot_dir(
+                            self.sync_config.folder.strip(),
+                            self.sync_config.machine_id,
+                            self._current_vw_year(),
+                        )
+                        QMessageBox.information(
+                            self,
+                            "Log sync",
+                            f"Log snapshot saved.\n\n{dest}",
+                        )
+                elif synced_paths:
+                    self.statusBar().showMessage(
+                        f"Loaded {len(synced_paths)} log source(s) from sync folder",
+                        6000,
+                    )
         self._tick()
 
     def _unassign_file_from_project(self, file_path: str) -> None:
@@ -1549,7 +1719,9 @@ class MainWindow(QMainWindow):
             initial_project_code=code or None,
             file_assignments=self.file_project_overrides,
             on_unassign_file=self._unassign_file_from_project,
+            on_catalog_changed=self._mark_catalog_dirty,
         ).exec()
+        self._maybe_push_catalog(force=True)
         self._sync_orphan_project_assignments()
         self._tick()
         self._refresh_history()
@@ -1582,6 +1754,8 @@ class MainWindow(QMainWindow):
                 hourly_rate=float(values["hourly_rate"]),
             )
         )
+        self._mark_catalog_dirty()
+        self._maybe_push_catalog(force=True)
         self._tick()
         self._refresh_history()
         self.statusBar().showMessage(f"Created project {name}", 3000)
@@ -1596,8 +1770,14 @@ class MainWindow(QMainWindow):
         DonateDialog(self).exec()
 
     def _open_client_editor(self, client_id: int | None) -> None:
-        dialog = ClientEditorDialog(self.repository, client_id=client_id, parent=self)
+        dialog = ClientEditorDialog(
+            self.repository,
+            client_id=client_id,
+            parent=self,
+            on_catalog_changed=self._mark_catalog_dirty,
+        )
         if dialog.exec() == dialog.DialogCode.Accepted:
+            self._maybe_push_catalog(force=True)
             self.clients_tab.refresh()
 
     def _report_data_builder(self) -> ReportDataBuilder:
@@ -1835,26 +2015,62 @@ class MainWindow(QMainWindow):
         saved = self.settings.value("mainwindow_geometry")
         if saved:
             self.restoreGeometry(saved)
+        else:
+            _, default_size = adaptive_window_size()
+            self.resize(*default_size)
+            screen = QApplication.primaryScreen()
+            if screen is not None:
+                geo = screen.availableGeometry()
+                self.move(
+                    geo.center().x() - default_size[0] // 2,
+                    geo.center().y() - default_size[1] // 2,
+                )
         self._ensure_window_on_screen()
+        QTimer.singleShot(0, self._restore_splitter_state)
+
+    def _restore_splitter_state(self) -> None:
+        saved = self.settings.value("mainwindow_splitter")
+        if saved and hasattr(self, "_vertical_splitter"):
+            self._vertical_splitter.restoreState(saved)
+            return
+        if not hasattr(self, "_vertical_splitter"):
+            return
+        total = self._vertical_splitter.height()
+        if total <= 0:
+            return
+        top = scale_px(260)
+        top = min(top, int(total * 0.35))
+        self._vertical_splitter.setSizes([top, max(total - top, scale_px(320))])
 
     def _ensure_window_on_screen(self) -> None:
         if not self.isVisible():
             return
         if self.isMinimized():
             self.showNormal()
+
+        screen = QApplication.screenAt(self.frameGeometry().center()) or QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+
+        width = min(self.width(), available.width() - 24)
+        height = min(self.height(), available.height() - 24)
+        width = max(width, self.minimumWidth())
+        height = max(height, self.minimumHeight())
+        if width != self.width() or height != self.height():
+            self.resize(width, height)
+
         frame = self.frameGeometry()
         visible_area = 0
-        for screen in QApplication.screens():
-            intersection = frame.intersected(screen.availableGeometry())
+        for app_screen in QApplication.screens():
+            intersection = frame.intersected(app_screen.availableGeometry())
             visible_area += intersection.width() * intersection.height()
         min_visible = min(200 * 200, max(1, frame.width() * frame.height()) // 4)
-        if visible_area >= min_visible:
-            return
-        primary = QApplication.primaryScreen()
-        if primary:
-            geo = primary.availableGeometry()
-            self.resize(max(self.width(), 1000), max(self.height(), 680))
-            self.move(geo.center().x() - self.width() // 2, geo.center().y() - self.height() // 2)
+        if visible_area < min_visible:
+            self.move(
+                available.center().x() - self.width() // 2,
+                available.center().y() - self.height() // 2,
+            )
 
     def _quit_app(self) -> None:
         self._is_quitting = True
@@ -1862,6 +2078,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.settings.setValue("mainwindow_geometry", self.saveGeometry())
+        if hasattr(self, "_vertical_splitter"):
+            self.settings.setValue("mainwindow_splitter", self._vertical_splitter.saveState())
         self._save_project_overrides()
         if self.minimize_to_tray and not self._is_quitting and self.tray and self.tray.isVisible():
             self.hide()

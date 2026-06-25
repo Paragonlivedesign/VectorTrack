@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -24,10 +26,13 @@ class ClientEditorDialog(QDialog):
         repository: Repository,
         client_id: int | None = None,
         parent: QWidget | None = None,
+        *,
+        on_catalog_changed: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.repository = repository
         self.client_id = client_id
+        self._on_catalog_changed = on_catalog_changed
         self.setWindowTitle("Client Editor")
         self.setMinimumWidth(420)
 
@@ -97,6 +102,8 @@ class ClientEditorDialog(QDialog):
         except Exception as exc:
             QMessageBox.warning(self, "Unable to save", str(exc))
             return
+        if self._on_catalog_changed is not None:
+            self._on_catalog_changed()
         self.accept()
 
     def _delete_client(self) -> None:
@@ -119,4 +126,6 @@ class ClientEditorDialog(QDialog):
         except Exception as exc:
             QMessageBox.warning(self, "Unable to update", str(exc))
             return
+        if self._on_catalog_changed is not None:
+            self._on_catalog_changed()
         self.accept()

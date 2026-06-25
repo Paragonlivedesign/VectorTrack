@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from vectortrack.db.repository import Repository
+from vectortrack.ui.layout_utils import configure_compact_table, scale_px
 
 
 class ClientsTab(QWidget):
@@ -34,8 +35,13 @@ class ClientsTab(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.table)
+        configure_compact_table(
+            self.table,
+            stretch_column=0,
+            content_columns=[1, 2, 3, 4, 5],
+            fixed_columns={6: 180},
+        )
+        layout.addWidget(self.table, 1)
 
     def refresh(self) -> None:
         clients = self.repository.list_clients(active_only=False)
@@ -77,8 +83,8 @@ class ClientsTab(QWidget):
 
             actions = QWidget(self)
             action_layout = QHBoxLayout(actions)
-            action_layout.setContentsMargins(4, 2, 4, 2)
-            action_layout.setSpacing(6)
+            action_layout.setContentsMargins(2, 1, 2, 1)
+            action_layout.setSpacing(scale_px(4))
             edit_btn = QPushButton("Edit")
             edit_btn.clicked.connect(lambda _checked=False, cid=client_id: self.edit_client_requested.emit(cid))
             statement_btn = QPushButton("Statement")

@@ -89,9 +89,46 @@ class ProcessMonitor:
                         if os.path.exists(exe_path):
                             installations[f"Vectorworks {year}"] = exe_path
                             logger.info(f"Found Vectorworks {year} at {exe_path}")
+
+            for year in range(2020, 2031):
+                year_label = f"Vectorworks {year}"
+                if year_label in installations:
+                    continue
+                for exe_path in (
+                    os.path.join(program_dir, f"Vectorworks {year}", f"Vectorworks {year}.exe"),
+                    os.path.join(program_dir, f"Vectorworks{year}", f"Vectorworks{year}.exe"),
+                    os.path.join(program_dir, f"Vectorworks {year}", "Vectorworks.exe"),
+                ):
+                    if os.path.isfile(exe_path):
+                        installations[year_label] = exe_path
+                        logger.info(f"Found Vectorworks {year} at {exe_path}")
+                        break
         
         self._known_paths = installations
         return installations
+
+    def latest_known_exe(self) -> Optional[str]:
+        """Return the newest discovered Vectorworks.exe path, if any."""
+        if not self._known_paths:
+            self.find_vectorworks_installations()
+        if not self._known_paths:
+            return None
+        latest_version = max(self._known_paths.keys())
+        return self._known_paths[latest_version]
+
+    def detect_running_vectorworks_exe(self) -> Optional[str]:
+        """Return the executable path for a running Vectorworks process, if found."""
+        try:
+            for proc in psutil.process_iter(["name", "exe"]):
+                name = (proc.info.get("name") or "").lower()
+                if "vectorworks" not in name:
+                    continue
+                exe_path = proc.info.get("exe")
+                if exe_path and os.path.isfile(exe_path):
+                    return exe_path
+        except Exception as exc:
+            logger.debug(f"Running Vectorworks detection failed: {exc}")
+        return None
         
     def auto_select_vectorworks(self) -> Optional[str]:
         """Automatically select the most recent Vectorworks installation."""
@@ -105,6 +142,12 @@ class ProcessMonitor:
             self.set_vectorworks_path(exe_path)
             logger.info(f"Auto-selected {latest_version} at {exe_path}")
             return exe_path
+
+        running_exe = self.detect_running_vectorworks_exe()
+        if running_exe:
+            self.set_vectorworks_path(running_exe)
+            logger.info(f"Auto-selected running Vectorworks at {running_exe}")
+            return running_exe
             
         return None
         

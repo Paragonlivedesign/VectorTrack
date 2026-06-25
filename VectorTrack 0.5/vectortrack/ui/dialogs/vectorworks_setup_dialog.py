@@ -23,6 +23,7 @@ class VectorworksSetupDialog(QDialog):
     def __init__(
         self,
         browse_directory: str = "",
+        initial_path: str = "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -67,6 +68,11 @@ class VectorworksSetupDialog(QDialog):
         self.link_btn.clicked.connect(self.accept)
         skip_btn.clicked.connect(self.reject)
         layout.addWidget(buttons)
+
+        if initial_path and os.path.isfile(initial_path):
+            self._selected_path = initial_path
+            self.path_edit.setText(initial_path)
+            self.link_btn.setEnabled(True)
 
     @property
     def selected_path(self) -> str:

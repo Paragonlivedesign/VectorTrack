@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.7-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Catalog sync** — share clients and projects across machines via `catalog.json` in the sync folder; review conflicts, import remote entries, merge duplicates
+- **Project budgets** — track progress against hours or a dollar amount (not both); progress bar on Projects tab and in Project Editor
+- **Vectorworks detection** — broader install-path scan; auto-select running Vectorworks when installed path is unknown
+- **Sync folder** — fall back to own log snapshot when local VW log is missing; catalog push on client/project edits
+- **UI** — DPI-aware window sizing, compact tables, improved startup sequence and first-run wizard
+- Installer artifact: `VectorTrack-0.5.7-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.7 beta**
+
+---
+
 ## [0.5.6-beta] — 2026-06
 
 ### VectorTrack (desktop)

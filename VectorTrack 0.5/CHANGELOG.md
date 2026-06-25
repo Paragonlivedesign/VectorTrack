@@ -11,6 +11,10 @@
 - **UI** — DPI-aware window sizing, compact tables, improved startup sequence and first-run wizard
 - Installer artifact: `VectorTrack-0.5.7-Setup.exe`
 
+### Fixed (hotfix)
+
+- **Startup crash** — defer merged-assignment refresh until after the toolbar is built; guard catalog review nudge when UI is not ready
+
 ### VectorTrackScript (plug-in)
 
 - Version aligned to **0.5.7 beta**

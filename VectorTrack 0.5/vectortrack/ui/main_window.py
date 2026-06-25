@@ -167,7 +167,6 @@ class MainWindow(QMainWindow):
         self._catalog_dirty = False
         self._machine_label_cache: dict[str, str] = {}
         self._catalog_pending_count = 0
-        self._refresh_merged_assignments()
         self._last_log_sync = datetime.min
         self._last_sync_push = datetime.min
         self._last_sync_push_error = ""
@@ -207,6 +206,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_menus()
         self._build_statusbar()
+        self._refresh_merged_assignments()
         self._restore_window_geometry()
         self._vw_detect_mode = self._auto_detect_vectorworks()
         self._apply_saved_theme()
@@ -691,6 +691,8 @@ class MainWindow(QMainWindow):
         return build_catalog_view(self.repository, read_catalog(sync_folder))
 
     def _update_catalog_pending_nudge(self) -> None:
+        if not hasattr(self, "_catalog_review_btn"):
+            return
         diff = self._catalog_diff()
         if diff is None:
             self._catalog_pending_count = 0

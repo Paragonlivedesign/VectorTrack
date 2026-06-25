@@ -1,5 +1,9 @@
 ## VectorTrack 0.5.7 beta
 
+### Hotfix
+
+- **Startup crash** — fixed crash on launch when catalog sync ran before the UI was ready
+
 ### New and improved
 
 - **Catalog sync** — share clients/projects across machines; review and resolve conflicts

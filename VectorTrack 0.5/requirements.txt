@@ -4,7 +4,7 @@ cryptography==41.0.3
 PyQt6==6.4.2
 PyQt6-Qt6==6.4.3
 PyQt6-sip==13.4.1
-python-dotenv==1.0.0
+-e ../packages/vectortrack-core
 loguru==0.7.0
 pytest==7.4.3
 pytest-qt==4.2.0

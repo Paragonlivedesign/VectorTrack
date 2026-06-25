@@ -4,7 +4,7 @@ Windows desktop time tracker for Vectorworks — source tree for the standalone 
 
 | | |
 |---|---|
-| **Version** | 0.5.8 beta |
+| **Version** | 0.5.9 beta |
 | **Platform** | Windows 10+ |
 | **Publisher** | Paragon Live Design |
 

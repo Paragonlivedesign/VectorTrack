@@ -1,0 +1,83 @@
+"""Cross-machine sync configuration."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from vectortrack_core.identity.machine import (
+    local_machine_id,
+    resolve_sync_machine_id,
+    resolve_vw_identity,
+)
+
+
+@dataclass
+class SyncConfig:
+    enabled: bool = False
+    folder: str = ""
+    machine_id: str = ""
+    machine_label: str = ""
+    sync_on_refresh: bool = True
+
+
+def default_machine_id() -> str:
+    return local_machine_id()
+
+
+def sync_config_from_mapping(raw: dict[str, Any] | None) -> SyncConfig:
+    if not isinstance(raw, dict):
+        return SyncConfig()
+
+    folder = raw.get("folder")
+    machine_id = raw.get("machine_id")
+    machine_label = raw.get("machine_label")
+
+    resolved_folder = ""
+    if isinstance(folder, str) and folder.strip():
+        resolved_folder = str(Path(folder.strip()).expanduser())
+
+    resolved_machine_id = ""
+    if isinstance(machine_id, str) and machine_id.strip():
+        resolved_machine_id = resolve_sync_machine_id(machine_id.strip())
+    else:
+        resolved_machine_id = default_machine_id()
+
+    resolved_label = ""
+    if isinstance(machine_label, str):
+        resolved_label = machine_label.strip()
+
+    return SyncConfig(
+        enabled=bool(raw.get("enabled", False)),
+        folder=resolved_folder,
+        machine_id=resolved_machine_id,
+        machine_label=resolved_label,
+        sync_on_refresh=bool(raw.get("sync_on_refresh", True)),
+    )
+
+
+def sync_config_to_mapping(sync_config: SyncConfig) -> dict[str, Any]:
+    identity = resolve_vw_identity()
+    return {
+        "enabled": sync_config.enabled,
+        "folder": sync_config.folder,
+        "machine_id": sync_config.machine_id or default_machine_id(),
+        "machine_label": sync_config.machine_label,
+        "sync_on_refresh": sync_config.sync_on_refresh,
+        "vw_identity": identity.to_mapping(),
+    }
+
+
+def load_sync_config_from_paths_json(paths_file: Path) -> SyncConfig:
+    if not paths_file.is_file():
+        return SyncConfig()
+    try:
+        payload = json.loads(paths_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return SyncConfig()
+    if not isinstance(payload, dict):
+        return SyncConfig()
+    raw = payload.get("sync")
+    return sync_config_from_mapping(raw if isinstance(raw, dict) else None)

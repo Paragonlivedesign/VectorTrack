@@ -4,7 +4,7 @@ Vectorworks menu command — time summary from `Vectorworks Log.txt` for the doc
 
 | | |
 |---|---|
-| **Version** | 0.5.8 beta |
+| **Version** | 0.5.9 beta |
 | **Tested with** | Vectorworks 2025 / 2026 |
 | **Publisher** | Paragon Live Design |
 

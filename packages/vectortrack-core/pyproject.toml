@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vectortrack-core"
+version = "0.5.9"
+description = "Shared VectorTrack log parsing, sync, and identity logic"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vectortrack_core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

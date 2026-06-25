@@ -260,27 +260,36 @@ class ProcessMonitor:
         except Exception as e:
             logger.debug(f"Window enum skipped for hwnd {hwnd}: {e}")
             
+    def _normalize_window_file_path(self, file_path: str) -> str:
+        """Normalize paths parsed from Vectorworks window titles."""
+        cleaned = file_path.strip()
+        while cleaned.startswith("*"):
+            cleaned = cleaned[1:].lstrip()
+        return os.path.normpath(cleaned)
+
     def _get_file_path_from_title(self, title: str) -> Optional[str]:
         """Extract file path from window title if possible."""
+        raw_path: Optional[str] = None
         if title.endswith(".vwx"):
             if " - " not in title and "[" not in title:
-                return title
+                raw_path = title
 
-        if " - " in title:
+        if raw_path is None and " - " in title:
             parts = title.split(" - ")
             for part in reversed(parts):
                 if part.endswith(".vwx"):
-                    return part.strip()
+                    raw_path = part.strip()
+                    break
 
-        if "[" in title and "]" in title:
+        if raw_path is None and "[" in title and "]" in title:
             start = title.find("[") + 1
             end = title.find("]")
             if start > 0 and end > start:
                 file_path = title[start:end]
                 if file_path.endswith(".vwx"):
-                    return file_path
+                    raw_path = file_path
 
-        if ".vwx" in title:
+        if raw_path is None and ".vwx" in title:
             vwx_index = title.rfind(".vwx")
             if vwx_index != -1:
                 start_index = max(
@@ -292,12 +301,15 @@ class ProcessMonitor:
                 if start_index != -1:
                     file_path = title[start_index + 1 : vwx_index + 4].strip()
                     if file_path:
-                        return file_path
-                file_path = title[: vwx_index + 4].strip()
-                if file_path:
-                    return file_path
+                        raw_path = file_path
+                if raw_path is None:
+                    file_path = title[: vwx_index + 4].strip()
+                    if file_path:
+                        raw_path = file_path
 
-        return None
+        if not raw_path:
+            return None
+        return self._normalize_window_file_path(raw_path)
         
     def _is_window_visible(self, hwnd: int) -> bool:
         """Check if window is visible and not minimized."""

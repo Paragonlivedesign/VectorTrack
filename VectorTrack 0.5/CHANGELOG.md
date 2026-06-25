@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.9-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Shared core library** — log parsing, sync folder layout, and machine identity moved to `packages/vectortrack-core` (single source of truth with the plug-in)
+- **Refactor** — `SyncCoordinator`, typed `SettingsStore`, split catalog modules, extracted session/tracking persistence; slimmer `MainWindow`
+- **Theme** — centralized theme tokens and table status colors
+- **CI** — GitHub Actions workflow runs desktop, plug-in, and core tests on push/PR
+- **Tests** — expanded coverage (settings, backup, hotkeys, report data, multi-file tracking, core log parity)
+- Installer artifact: `VectorTrack-0.5.9-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Uses shared `vectortrack-core` for log parsing and sync helpers
+- Dialog logic split into `vectortrack_dialog_controller.py`
+- Version aligned to **0.5.9 beta**
+
+---
+
 ## [0.5.8-beta] — 2026-06
 
 ### VectorTrack (desktop)

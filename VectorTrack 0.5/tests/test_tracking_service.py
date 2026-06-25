@@ -44,6 +44,9 @@ class FakeProcessMonitor:
             return self.window
         return None
 
+    def is_render_grace_window(self, title=None) -> bool:
+        return False
+
 
 class FakeRepository:
     def __init__(self):

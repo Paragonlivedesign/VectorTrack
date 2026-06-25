@@ -15,6 +15,7 @@ class HUDWindow(QWidget):
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.resize(250, 110)
+        self._move_to_default_corner()
         layout = QVBoxLayout(self)
         self.file_label = QLabel("No active file")
         self.time_label = QLabel("0:00")
@@ -56,3 +57,12 @@ class HUDWindow(QWidget):
         else:
             self.file_label.setToolTip("")
         self.money_label.setText(f"${amount:.2f}")
+
+    def _move_to_default_corner(self) -> None:
+        from PyQt6.QtGui import QGuiApplication
+
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        geometry = screen.availableGeometry()
+        self.move(geometry.right() - self.width() - 16, geometry.top() + 16)

@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from vectortrack_core.constants import DEFAULT_HOURLY_RATE
+
 APP_NAME = "VectorTrack"
-APP_VERSION = "0.5.8"
+APP_VERSION = "0.5.9"
 APP_BETA = True
 
 GITHUB_REPO_OWNER = "Paragonlivedesign"
@@ -43,7 +45,6 @@ DONATE_MESSAGE = "Love VectorTrack? Support development on Venmo."
 DEFAULT_DB_FILENAME = "vectortrack.db"
 LEGACY_DB_FILENAME = "sessions.db"
 
-DEFAULT_HOURLY_RATE = 75.0
 DEFAULT_IDLE_MINUTES = 5
 DEFAULT_IDLE_PAUSE_ENABLED = True
 DEFAULT_IDLE_BYPASS_MODE = "none"
@@ -170,6 +171,7 @@ def write_paths_json(extra: dict[str, Any] | None = None) -> Path:
             "legacy_db_path": str(legacy_db_path()),
             "projects_json": str(projects_json_path()),
             "log_library": str(log_library_path()),
+            "default_hourly_rate": DEFAULT_HOURLY_RATE,
         }
     )
     if extra:

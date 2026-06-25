@@ -68,7 +68,10 @@ class ConflictGroup:
 
 
 def normalize_file_name(value: str) -> str:
-    return os.path.basename((value or "").replace("\\", "/")).strip().lower()
+    basename = os.path.basename((value or "").replace("\\", "/")).strip().lower()
+    if basename.endswith(".vwx"):
+        basename = basename[:-4]
+    return basename
 
 
 def machine_id_from_log_path(log_path: str) -> str:
@@ -425,10 +428,30 @@ class SessionAggregator:
         return deduped
 
     def _finalize(self, sessions: List[UnifiedSession]) -> List[UnifiedSession]:
+        sessions = self._merge_renamed_file_sessions(sessions)
         sessions = self._suppress_log_duplicates(sessions)
         visible = [session for session in sessions if not session.is_excluded]
         self.detect_conflicts(visible)
         return sorted(sessions, key=lambda item: item.start, reverse=True)
+
+    def _merge_renamed_file_sessions(self, sessions: List[UnifiedSession]) -> List[UnifiedSession]:
+        """Collapse duplicate log rows caused by save-as renames (same normalized basename)."""
+        merged: dict[tuple[str, str, str, str], UnifiedSession] = {}
+        passthrough: List[UnifiedSession] = []
+        for session in sessions:
+            if session.source != "log":
+                passthrough.append(session)
+                continue
+            key = (
+                session.start.isoformat(),
+                session.end.isoformat() if session.end else "",
+                normalize_file_name(session.file_alias),
+                session.machine_id,
+            )
+            existing = merged.get(key)
+            if existing is None or session.hours > existing.hours:
+                merged[key] = session
+        return passthrough + list(merged.values())
 
     def _suppress_log_duplicates(self, sessions: List[UnifiedSession]) -> List[UnifiedSession]:
         db_signatures = {

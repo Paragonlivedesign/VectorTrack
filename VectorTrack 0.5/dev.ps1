@@ -21,6 +21,7 @@ if (-not (Test-Path $venvPython)) {
 }
 
 & $venvPython -m pip install -r $requirements -q
+& $venvPython -m pip install -e (Join-Path (Split-Path -Parent $here) "packages\vectortrack-core") -q
 
 $running = Get-Process -Name "VectorTrack" -ErrorAction SilentlyContinue
 if ($running) {

@@ -20,6 +20,9 @@ if (-not (Test-Path $venvPython)) {
     exit 1
 }
 
+$corePackage = Join-Path (Split-Path -Parent $here) "packages\vectortrack-core"
+& $venvPython -m pip install -r (Join-Path $here "requirements.txt") -q
+& $venvPython -m pip install -e $corePackage -q
 & $venvPython -m pip install pyinstaller -q
 
 New-Item -ItemType Directory -Force -Path $distPath, $workPath | Out-Null

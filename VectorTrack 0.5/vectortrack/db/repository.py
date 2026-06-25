@@ -19,6 +19,7 @@ from vectortrack.services.vw_identity import local_machine_id
 
 
 from vectortrack.db.rate_resolver import resolve_rate_for_project
+from vectortrack.db.session_repository import SessionRepository
 
 
 class Repository:
@@ -40,6 +41,7 @@ class Repository:
             else float(config.DEFAULT_HOURLY_RATE)
         )
         init_database(self.database_path, legacy_db_file=self.legacy_database_path)
+        self._sessions = SessionRepository(self._connect)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.database_path), timeout=5.0)
@@ -816,23 +818,11 @@ class Repository:
         include_open: bool = True,
         limit: int = 500,
     ) -> list[TimeSession]:
-        clauses: list[str] = []
-        params: list[Any] = []
-        if project_id is not None:
-            clauses.append("project_id = ?")
-            params.append(project_id)
-        if not include_open:
-            clauses.append("end_time IS NOT NULL")
-
-        query = "SELECT * FROM sessions"
-        if clauses:
-            query += " WHERE " + " AND ".join(clauses)
-        query += " ORDER BY start_time DESC LIMIT ?"
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-        return [TimeSession.from_row(row) for row in rows]
+        return self._sessions.list_sessions(
+            project_id=project_id,
+            include_open=include_open,
+            limit=limit,
+        )
 
     def get_session(self, session_id: int) -> Optional[TimeSession]:
         with self._connect() as conn:

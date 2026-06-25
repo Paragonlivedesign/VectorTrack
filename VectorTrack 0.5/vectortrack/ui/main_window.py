@@ -44,15 +44,8 @@ from vectortrack.services.report_service import ReportService
 from vectortrack.services.autostart import set_enabled as set_autostart_enabled
 from vectortrack.services.hotkey_service import HotkeyService
 from vectortrack.services.notification_service import NotificationService
-from vectortrack.services.project_sync import sync_orphan_project_codes
-from vectortrack.services.catalog_sync import (
-    CatalogApplySummary,
-    build_catalog_view,
-    filter_orphan_project_codes,
-    push_catalog,
-    read_catalog,
-    sync_catalog,
-)
+from vectortrack.services.catalog_sync import CatalogApplySummary
+from vectortrack.services.sync_coordinator import SyncCoordinator
 from vectortrack.services.tracking_service import TrackingService
 from vectortrack.ui.clients_tab import ClientsTab
 from vectortrack.ui.dashboard_strip import DashboardStrip
@@ -87,6 +80,8 @@ from vectortrack.ui.dialogs.report_dialog import ReportDialog
 from vectortrack.ui.dialogs.settings_dialog import SettingsDialog
 from vectortrack.ui.dialogs.update_check_dialog import UpdateCheckDialog
 from vectortrack.services.session_aggregator import SessionAggregator
+from vectortrack.settings_store import SettingsStore
+from vectortrack.models.rows import OpenFileRow, ProjectSummaryRow
 from vectortrack.services.vw_identity import (
     clear_vw_identity_cache,
     resolve_sync_machine_id,
@@ -94,16 +89,9 @@ from vectortrack.services.vw_identity import (
     resolve_vw_identity,
 )
 from vectortrack.ui.dialogs.session_explorer_dialog import SessionExplorerDialog
-from vectortrack.sync_config import SyncConfig, default_machine_id, load_sync_config_from_paths_json, settings_keys_from_sync_config, sync_config_to_mapping
+from vectortrack.sync_config import SyncConfig, settings_keys_from_sync_config, sync_config_to_mapping
 from vectortrack.sync_folder import (
-    catalog_path,
     gather_sync_log_paths,
-    load_sync_machine_labels,
-    merge_remote_assignments,
-    push_assignments_snapshot,
-    push_log_snapshot,
-    resolve_machine_display,
-    resolve_sync_folder,
     snapshot_dir,
 )
 
@@ -136,49 +124,45 @@ class MainWindow(QMainWindow):
         )
         self.import_export_service = ImportExportService()
 
-        self.settings = QSettings("Paragon", "VectorTrack")
+        self.settings_store = SettingsStore()
+        self.settings = self.settings_store.qsettings
+        app_settings = self.settings_store.load()
         if self.settings.value("minimize_to_tray") is None:
             self.settings.setValue("minimize_to_tray", True)
-        self.auto_track_enabled = self.settings.value("auto_track_enabled", True, type=bool)
-        self.import_vw_log_history = self.settings.value("import_vw_log_history", True, type=bool)
-        self.vw_log_merge_years = self.settings.value("vw_log_merge_years", True, type=bool)
-        self.vw_log_path = self.settings.value("vw_log_path", "", type=str)
-        self.dark_mode_enabled = self.settings.value("dark_mode_enabled", False, type=bool)
-        self.default_rate = self.settings.value("default_hourly_rate", 75.0, type=float)
+        self.auto_track_enabled = app_settings.auto_track_enabled
+        self.import_vw_log_history = app_settings.import_vw_log_history
+        self.vw_log_merge_years = app_settings.vw_log_merge_years
+        self.vw_log_path = app_settings.vw_log_path
+        self.dark_mode_enabled = app_settings.dark_mode_enabled
+        self.default_rate = app_settings.default_hourly_rate
         self.repository.default_hourly_rate = float(self.default_rate)
-        self.minimize_to_tray = self.settings.value("minimize_to_tray", True, type=bool)
-        self.notifications_enabled = self.settings.value("notifications_enabled", True, type=bool)
-        self.global_hotkeys_enabled = self.settings.value("global_hotkeys_enabled", True, type=bool)
+        self.minimize_to_tray = app_settings.minimize_to_tray
+        self.notifications_enabled = app_settings.notifications_enabled
+        self.global_hotkeys_enabled = app_settings.global_hotkeys_enabled
         self.eod_notify_enabled = self.settings.value("eod_notify_enabled", True, type=bool)
         self.eod_notify_hour = int(self.settings.value("eod_notify_hour", 17, type=int))
-        self.idle_pause_enabled = self.settings.value(
-            "idle_pause_enabled", config.DEFAULT_IDLE_PAUSE_ENABLED, type=bool
-        )
-        self.idle_bypass_mode = self.settings.value(
-            "idle_bypass_mode", config.DEFAULT_IDLE_BYPASS_MODE, type=str
-        )
+        self.idle_pause_enabled = app_settings.idle_pause_enabled
+        self.idle_bypass_mode = app_settings.idle_bypass_mode
         if self.idle_bypass_mode not in config.IDLE_BYPASS_MODES:
             self.idle_bypass_mode = config.DEFAULT_IDLE_BYPASS_MODE
-        self.sync_config = self._load_sync_config()
+        self.file_project_overrides = self.settings_store.load_file_project_overrides()
+        self._sync_coordinator = SyncCoordinator(
+            repository=self.repository,
+            settings_store=self.settings_store,
+            log_paths_provider=self._local_log_paths,
+            vw_year_provider=self._current_vw_year,
+            status_callback=self._show_sync_status,
+        )
+        self._sync_coordinator.file_project_overrides = self.file_project_overrides
+        self.sync_config = self._sync_coordinator.load_config()
         self.session_aggregator = SessionAggregator(self.repository)
         self.log_cache: dict[str, dict[str, float | datetime]] = {}
-        self.file_project_overrides: dict[str, str] = self._load_project_overrides()
         self.merged_assignments: dict[str, str] = {}
-        self._assignments_dirty = False
-        self._catalog_dirty = False
-        self._machine_label_cache: dict[str, str] = {}
         self._catalog_pending_count = 0
-        self._cached_catalog: dict | None = None
-        self._cached_catalog_folder = ""
-        self._cached_catalog_mtime = 0.0
-        self._cached_catalog_diff = None
-        self._cached_catalog_diff_at = datetime.min
         self._last_catalog_maintenance_at = datetime.min
         self._last_catalog_nudge_at = datetime.min
         self._last_project_summary_at = datetime.min
         self._last_log_sync = datetime.min
-        self._last_sync_push = datetime.min
-        self._last_sync_push_error = ""
         self._last_rows: list[dict[str, object]] = []
         self._is_quitting = False
         self._known_open_files: set[str] = set()
@@ -247,6 +231,10 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(0, self._run_startup_sequence)
 
+    def _show_sync_status(self, message: str, timeout_ms: int) -> None:
+        if hasattr(self, "statusBar"):
+            self.statusBar().showMessage(message, timeout_ms)
+
     def _apply_idle_settings(self) -> None:
         self.tracking_service.set_idle_pause_enabled(self.idle_pause_enabled)
         self.tracking_service.set_idle_bypass_mode(self.idle_bypass_mode)
@@ -286,30 +274,6 @@ class MainWindow(QMainWindow):
 
     def _toggle_pause_from_tray(self) -> None:
         self.pause_action.setChecked(not self.pause_action.isChecked())
-
-    @classmethod
-    def create_default(cls) -> "MainWindow":
-        settings = QSettings("Paragon", "VectorTrack")
-        default_rate = settings.value("default_hourly_rate", 75.0, type=float)
-        repository = Repository(default_hourly_rate=float(default_rate))
-        process_monitor = ProcessMonitor()
-        activity_monitor = ActivityMonitor(
-            idle_timeout_seconds=60
-            * int(QSettings("Paragon", "VectorTrack").value("default_idle_timeout", 5, type=int))
-        )
-        tracking = TrackingService(
-            process_monitor=process_monitor,
-            activity_monitor=activity_monitor,
-            repository=repository,
-        )
-        return cls(
-            repository=repository,
-            tracking_service=tracking,
-            log_service=LogService(),
-            billing_service=BillingService(),
-            process_monitor=process_monitor,
-            activity_monitor=activity_monitor,
-        )
 
     def _build_ui(self) -> None:
         container = QWidget(self)
@@ -404,6 +368,7 @@ class MainWindow(QMainWindow):
     def _build_menus(self) -> None:
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction("Import Bundle...", self._open_import_bundle_dialog)
+        file_menu.addAction("Export Bundle...", self._open_export_bundle_dialog)
         file_menu.addAction("Backup / Restore...", self._open_backup_restore_dialog)
         file_menu.addSeparator()
         file_menu.addAction("Select Vectorworks EXE...", self._select_vectorworks_exe)
@@ -467,6 +432,10 @@ class MainWindow(QMainWindow):
     def _apply_saved_theme(self) -> None:
         mode = "dark" if self.dark_mode_enabled else "light"
         apply_theme(QApplication.instance(), mode=mode)
+        if self._last_rows:
+            self.open_files_table.update_rows(self._last_rows)
+        self._refresh_project_summary(force=True)
+        self._refresh_history()
 
     def _run_startup_sequence(self) -> None:
         """Run first-run prompts in order, then refresh the live UI."""
@@ -492,25 +461,8 @@ class MainWindow(QMainWindow):
         self._apply_saved_theme()
 
     def _load_sync_config(self) -> SyncConfig:
-        vw_year = self._current_vw_year()
-        if self.settings.contains("sync_enabled"):
-            stored_id = str(self.settings.value("sync_machine_id", default_machine_id(), type=str))
-            stored_label = str(self.settings.value("sync_machine_label", "", type=str))
-            return SyncConfig(
-                enabled=self.settings.value("sync_enabled", False, type=bool),
-                folder=self.settings.value("sync_folder", "", type=str),
-                machine_id=resolve_sync_machine_id(stored_id, vw_year),
-                machine_label=resolve_sync_machine_label(stored_label, vw_year),
-                sync_on_refresh=self.settings.value("sync_on_refresh", True, type=bool),
-            )
-        loaded = load_sync_config_from_paths_json(config.paths_json_path())
-        return SyncConfig(
-            enabled=loaded.enabled,
-            folder=loaded.folder,
-            machine_id=resolve_sync_machine_id(loaded.machine_id, vw_year),
-            machine_label=resolve_sync_machine_label(loaded.machine_label, vw_year),
-            sync_on_refresh=loaded.sync_on_refresh,
-        )
+        self._sync_coordinator.file_project_overrides = self.file_project_overrides
+        return self._sync_coordinator.load_config()
 
     def _write_paths_manifest(self) -> None:
         try:
@@ -654,84 +606,28 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Vectorworks path error", str(exc))
 
     def _load_project_overrides(self) -> dict[str, str]:
-        raw = self.settings.value("file_project_overrides", "{}", type=str)
-        try:
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                return {str(k): str(v) for k, v in data.items()}
-        except Exception:
-            pass
-        return {}
+        return self.settings_store.load_file_project_overrides()
 
     def _save_project_overrides(self) -> None:
-        self.settings.setValue("file_project_overrides", json.dumps(self.file_project_overrides))
-        self._assignments_dirty = True
+        self.settings_store.save_file_project_overrides(self.file_project_overrides)
+        self._sync_coordinator.file_project_overrides = self.file_project_overrides
+        self._sync_coordinator.mark_assignments_dirty()
 
     def _mark_catalog_dirty(self) -> None:
-        self._catalog_dirty = True
-        self._cached_catalog_diff = None
+        self._sync_coordinator.mark_catalog_dirty()
 
     def _invalidate_catalog_cache(self) -> None:
-        self._cached_catalog = None
-        self._cached_catalog_diff = None
-
-    def _read_cached_catalog(self, sync_folder: str) -> dict:
-        path = catalog_path(sync_folder)
-        try:
-            mtime = os.path.getmtime(path) if os.path.isfile(path) else 0.0
-        except OSError:
-            mtime = 0.0
-        if (
-            self._cached_catalog is not None
-            and self._cached_catalog_folder == sync_folder
-            and self._cached_catalog_mtime == mtime
-        ):
-            return self._cached_catalog
-        catalog = read_catalog(sync_folder)
-        self._cached_catalog = catalog
-        self._cached_catalog_folder = sync_folder
-        self._cached_catalog_mtime = mtime
-        self._cached_catalog_diff = None
-        return catalog
+        self._sync_coordinator.invalidate_catalog_cache()
 
     def _show_catalog_sync_summary(self, summary: CatalogApplySummary) -> None:
-        if not summary.has_changes:
-            return
-        parts: list[str] = []
-        if summary.clients_added:
-            parts.append(f"{summary.clients_added} client(s) added")
-        if summary.clients_updated:
-            parts.append(f"{summary.clients_updated} client(s) updated")
-        if summary.projects_added:
-            parts.append(f"{summary.projects_added} project(s) added")
-        if summary.projects_updated:
-            parts.append(f"{summary.projects_updated} project(s) updated")
-        if summary.fuzzy_merged:
-            pair = summary.fuzzy_merged[0]
-            parts.append(f"merged similar client '{pair[0]}' → '{pair[1]}'")
-            if len(summary.fuzzy_merged) > 1:
-                parts.append(f"(+{len(summary.fuzzy_merged) - 1} more)")
-        self.statusBar().showMessage(f"Catalog sync: {', '.join(parts)}", 6000)
+        self._sync_coordinator.show_catalog_sync_summary(summary)
 
     def _maybe_push_catalog_on_startup(self) -> None:
         self._maybe_push_catalog(force=True)
         self._update_catalog_pending_nudge()
 
     def _catalog_diff(self, *, force: bool = False):
-        sync_folder = resolve_sync_folder(self.sync_config)
-        if not sync_folder or not self.sync_config.enabled or not os.path.isdir(sync_folder):
-            return None
-        if (
-            not force
-            and not self._catalog_dirty
-            and self._cached_catalog_diff is not None
-            and (datetime.now() - self._cached_catalog_diff_at).total_seconds() < 60
-        ):
-            return self._cached_catalog_diff
-        catalog = self._read_cached_catalog(sync_folder)
-        self._cached_catalog_diff = build_catalog_view(self.repository, catalog)
-        self._cached_catalog_diff_at = datetime.now()
-        return self._cached_catalog_diff
+        return self._sync_coordinator.catalog_diff(force=force)
 
     def _update_catalog_pending_nudge(self, *, force: bool = False) -> None:
         if not hasattr(self, "_catalog_review_btn"):
@@ -754,6 +650,8 @@ class MainWindow(QMainWindow):
         self._catalog_review_btn.show()
 
     def _open_catalog_sync_dialog(self) -> None:
+        from vectortrack.sync_folder import resolve_sync_folder
+
         sync_folder = resolve_sync_folder(self.sync_config) or ""
         dialog = CatalogSyncDialog(
             self.repository,
@@ -774,48 +672,18 @@ class MainWindow(QMainWindow):
         self._update_catalog_pending_nudge(force=True)
 
     def _maybe_push_catalog(self, *, force: bool = False) -> None:
-        if not self.sync_config.enabled or not self.sync_config.folder.strip():
-            return
-        if not force and not self._catalog_dirty:
-            return
-        sync_folder = resolve_sync_folder(self.sync_config)
-        if not sync_folder:
-            return
-        ok, _err = push_catalog(sync_folder, self.repository)
-        if ok:
-            self._catalog_dirty = False
-            self._invalidate_catalog_cache()
+        self._sync_coordinator.maybe_push_catalog(force=force)
 
     def _sync_catalog_roundtrip(self) -> None:
-        sync_folder = resolve_sync_folder(self.sync_config)
-        if not sync_folder or not self.sync_config.enabled or not os.path.isdir(sync_folder):
-            return
-        _summary, ok, err = sync_catalog(sync_folder, self.repository)
-        if ok:
-            self._catalog_dirty = False
-            self._invalidate_catalog_cache()
-        elif err:
-            self.statusBar().showMessage(f"Catalog sync failed: {err}", 8000)
+        self._sync_coordinator.sync_catalog_roundtrip()
         self._update_catalog_pending_nudge(force=True)
 
     def _refresh_merged_assignments(self, *, force_catalog_maintenance: bool = False) -> None:
-        sync_folder = resolve_sync_folder(self.sync_config)
-        vw_year = self._current_vw_year()
-        if sync_folder and self.sync_config.enabled:
-            self.merged_assignments = merge_remote_assignments(
-                sync_folder,
-                vw_year,
-                self.file_project_overrides,
-                local_machine_id=self.sync_config.machine_id,
-            )
-            self._machine_label_cache = load_sync_machine_labels(sync_folder, vw_year)
-        else:
-            self.merged_assignments = {
-                os.path.basename(str(path).replace("\\", "/")): str(code).strip()
-                for path, code in self.file_project_overrides.items()
-                if path and code
-            }
-            self._machine_label_cache = {}
+        self._sync_coordinator.file_project_overrides = self.file_project_overrides
+        self._sync_coordinator.refresh_merged_assignments(
+            force_catalog_maintenance=force_catalog_maintenance
+        )
+        self.merged_assignments = self._sync_coordinator.merged_assignments
         now = datetime.now()
         if force_catalog_maintenance or (
             now - self._last_catalog_maintenance_at
@@ -832,27 +700,11 @@ class MainWindow(QMainWindow):
         return assigned
 
     def _maybe_push_assignments(self, *, force: bool = False) -> None:
-        if not self.sync_config.enabled or not self.sync_config.folder.strip():
-            return
-        if not force and not self._assignments_dirty:
-            return
-        ok, _err = push_assignments_snapshot(
-            self.file_project_overrides,
-            self.sync_config,
-            self._current_vw_year(),
-        )
-        if ok:
-            self._assignments_dirty = False
+        self._sync_coordinator.file_project_overrides = self.file_project_overrides
+        self._sync_coordinator.maybe_push_assignments(force=force)
 
     def _machine_display(self, machine_id: str) -> str:
-        sync_folder = resolve_sync_folder(self.sync_config)
-        return resolve_machine_display(
-            machine_id,
-            sync_folder=sync_folder,
-            vw_year=self._current_vw_year(),
-            local_config=self.sync_config,
-            label_cache=self._machine_label_cache,
-        )
+        return self._sync_coordinator.machine_display(machine_id)
 
     def _history_rows_from_db(self, selected_project: str, start_limit: datetime, end_limit: datetime) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
@@ -939,28 +791,10 @@ class MainWindow(QMainWindow):
 
     def _sync_orphan_project_assignments(self) -> None:
         self._cleanup_stale_project_overrides()
-        codes: set[str] = set()
-        for code in self.file_project_overrides.values():
-            if code:
-                codes.add(str(code).strip())
-        for code in self.merged_assignments.values():
-            if code:
-                codes.add(str(code).strip())
-        for session in self.repository.list_sessions(include_open=True, limit=15000):
-            if session.project_id:
-                codes.add(str(session.project_id).strip())
-
-        missing_codes = [
-            code
-            for code in sorted(codes)
-            if code and self.repository.get_project_by_code(code) is None
-        ]
-        catalog = {}
-        sync_folder = resolve_sync_folder(self.sync_config)
-        if sync_folder and self.sync_config.enabled and os.path.isdir(sync_folder):
-            catalog = self._read_cached_catalog(sync_folder)
-
-        stub_codes, catalog_only = filter_orphan_project_codes(missing_codes, catalog)
+        self._sync_coordinator.file_project_overrides = self.file_project_overrides
+        created, catalog_only = self._sync_coordinator.sync_orphan_projects(
+            default_rate=float(self.default_rate)
+        )
         if catalog_only:
             sample = ", ".join(catalog_only[:3])
             suffix = f" (+{len(catalog_only) - 3} more)" if len(catalog_only) > 3 else ""
@@ -968,12 +802,6 @@ class MainWindow(QMainWindow):
                 f"Project code(s) in sync catalog need import: {sample}{suffix} — open Sync Catalog",
                 8000,
             )
-
-        created = sync_orphan_project_codes(
-            self.repository,
-            stub_codes,
-            default_rate=float(self.default_rate),
-        )
         if created:
             names = ", ".join(created[:3])
             suffix = f" (+{len(created) - 3} more)" if len(created) > 3 else ""
@@ -981,6 +809,10 @@ class MainWindow(QMainWindow):
                 f"Registered project(s) in Project Editor: {names}{suffix}",
                 5000,
             )
+
+    @property
+    def _last_sync_push_error(self) -> str:
+        return self._sync_coordinator._last_sync_push_error
 
     def _local_log_paths(self) -> list[str]:
         extra_paths = [
@@ -998,38 +830,8 @@ class MainWindow(QMainWindow):
 
     def _maybe_push_log_sync(self, *, force: bool = False) -> bool:
         """Push local Vectorworks Log.txt to the cross-machine sync folder."""
-        if not self.sync_config.enabled or not self.sync_config.sync_on_refresh:
-            return False
-        if not self.sync_config.folder.strip():
-            self._last_sync_push_error = "Sync folder is not set"
-            return False
-        if not force and (datetime.now() - self._last_sync_push).total_seconds() < 60:
-            return False
-
-        paths = self._local_log_paths()
-        if not paths:
-            self._last_sync_push_error = "Vectorworks Log.txt not found on this machine"
-            return False
-
-        ok, err = push_log_snapshot(
-            paths[0],
-            self.sync_config,
-            self._current_vw_year(),
-        )
-        if ok:
-            self._last_sync_push = datetime.now()
-            self._last_sync_push_error = ""
-            dest = snapshot_dir(
-                self.sync_config.folder.strip(),
-                self.sync_config.machine_id,
-                self._current_vw_year(),
-            )
-            self.statusBar().showMessage(f"Log sync updated: {dest}", 4000)
-            return True
-
-        self._last_sync_push_error = err or "Unknown sync error"
-        self.statusBar().showMessage(f"Log sync failed: {self._last_sync_push_error}", 8000)
-        return False
+        self._sync_coordinator.sync_config = self.sync_config
+        return self._sync_coordinator.maybe_push_log_sync(force=force)
 
     def _active_log_paths(self) -> list[str]:
         paths = self._local_log_paths()
@@ -1243,6 +1045,20 @@ class MainWindow(QMainWindow):
             return "Open"
         return "Recent"
 
+    def _live_hours_for_state(
+        self,
+        state,
+        *,
+        is_open: bool,
+        is_tracking: bool,
+    ) -> float:
+        if state is None or not is_open:
+            return 0.0
+        seconds = float(state.tracked_seconds)
+        if is_tracking:
+            seconds += max(0.0, (datetime.now() - state.last_tick_at).total_seconds())
+        return seconds / 3600.0
+
     def _row_for_file(
         self,
         file_path: str,
@@ -1257,7 +1073,12 @@ class MainWindow(QMainWindow):
             rate = float(open_session.hourly_rate)
         else:
             rate = self._rate_for_project(project_code)
-        live_hours = float(state.tracked_hours if state and is_open else 0.0)
+        is_tracking = self._is_live_tracking(file_path, row_kind)
+        live_hours = self._live_hours_for_state(
+            state,
+            is_open=is_open,
+            is_tracking=is_tracking,
+        )
         closed_hours, open_hours = self._log_stats_for_file(file_path, Path(file_path).name)
         delta_hours = (open_hours - live_hours) if is_open else 0.0
         billing = self.billing_service.compute(
@@ -1273,21 +1094,20 @@ class MainWindow(QMainWindow):
             status = self._status_for_row(file_path, "open")
         else:
             status = "Recent"
-        is_tracking = self._is_live_tracking(file_path, row_kind)
-        return {
-            "file_path": file_path,
-            "file_name": os.path.basename(file_path),
-            "project": self._project_display(project_code),
-            "project_code": project_code,
-            "status": status,
-            "past_hours": closed_hours,
-            "live_hours": live_hours,
-            "delta_hours": delta_hours,
-            "rate": rate,
-            "earned": billing.total_due,
-            "row_kind": row_kind,
-            "is_tracking": is_tracking,
-        }
+        return OpenFileRow(
+            file_path=file_path,
+            file_name=os.path.basename(file_path),
+            project=self._project_display(project_code),
+            project_code=project_code,
+            status=status,
+            past_hours=closed_hours,
+            live_hours=live_hours,
+            delta_hours=delta_hours,
+            rate=rate,
+            earned=billing.total_due,
+            row_kind=row_kind,
+            is_tracking=is_tracking,
+        ).to_dict()
 
     def _is_live_tracking(self, file_path: str, row_kind: str) -> bool:
         current = self.tracking_service.current_state
@@ -1701,6 +1521,7 @@ class MainWindow(QMainWindow):
             ),
             sync_on_refresh=bool(values.get("sync_on_refresh", True)),
         )
+        self._sync_coordinator.sync_config = self.sync_config
         clear_vw_identity_cache()
         self._refresh_merged_assignments()
         for key, value in settings_keys_from_sync_config(self.sync_config).items():
@@ -1873,6 +1694,30 @@ class MainWindow(QMainWindow):
         dialog = ImportBundleDialog(self.repository, self.import_export_service, self)
         dialog.imported.connect(lambda _count: self._refresh_history())
         dialog.exec()
+
+    def _open_export_bundle_dialog(self) -> None:
+        path, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Export session bundle",
+            str(config.resolve_data_dir() / "export.vtpack"),
+            "VectorTrack bundle (*.vtpack)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".vtpack"):
+            path = f"{path}.vtpack"
+        sessions = self.repository.list_sessions(include_open=True, limit=50000)
+        rows = [session.to_dict() for session in sessions]
+        try:
+            output = self.import_export_service.export_vtpack(
+                rows,
+                path,
+                metadata={"exported_by": "VectorTrack", "version": config.APP_VERSION},
+            )
+        except OSError as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        QMessageBox.information(self, "Export complete", f"Saved bundle to:\n{output}")
 
     def _open_backup_restore_dialog(self) -> None:
         BackupRestoreDialog(self.backup_service, self).exec()

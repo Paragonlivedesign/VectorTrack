@@ -1,4 +1,7 @@
-"""Compatibility session logger implemented as a thin repository wrapper."""
+"""Compatibility session logger implemented as a thin repository wrapper.
+
+Deprecated: prefer Repository session methods directly in new code.
+"""
 
 from __future__ import annotations
 

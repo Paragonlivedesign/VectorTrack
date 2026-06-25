@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from vectortrack.ui.layout_utils import configure_compact_table
+from vectortrack.ui.theme import table_status_colors
 
 
 class HistoryBrowser(QWidget):
@@ -101,8 +102,10 @@ class HistoryBrowser(QWidget):
             for col, value in enumerate(values):
                 cell = QTableWidgetItem(value)
                 if status == "Excluded":
-                    cell.setBackground(QBrush(QColor("#e8e8e8")))
-                    cell.setForeground(QBrush(QColor("#777777")))
+                    bg, fg = table_status_colors("excluded")
+                    cell.setBackground(QBrush(bg))
+                    cell.setForeground(QBrush(fg))
                 elif status == "Conflict":
-                    cell.setBackground(QBrush(QColor("#f6deb2")))
+                    bg, _fg = table_status_colors("conflict")
+                    cell.setBackground(QBrush(bg))
                 self.table.setItem(row, col, cell)

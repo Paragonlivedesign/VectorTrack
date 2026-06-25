@@ -328,8 +328,12 @@ cancel = 0
 
 
 def run():
-    global _dialog
-    _state['vw_year'] = _get_vw_year()
+    global _dialog, _state
+    from vectortrack_dialog_controller import DialogController
+
+    controller = DialogController(_get_vw_year())
+    _state = controller.state.__dict__
+    _state['vw_year'] = controller.state.vw_year
     _state['data_dir'] = plugin_data_dir_for_year(_state['vw_year'])
     _state['sync_config'] = load_sync_config(_state['vw_year'])
     _state['project_name'] = _get_project_name()

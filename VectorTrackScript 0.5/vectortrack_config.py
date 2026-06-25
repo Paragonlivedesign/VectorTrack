@@ -4,12 +4,33 @@ VectorTrackScript 0.5 configuration helpers (paths.json + project metadata).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import socket
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional
+
+try:
+    from vectortrack_core.identity.machine import (
+        hostname_hash_machine_id,
+        local_machine_id,
+        resolve_sync_machine_id,
+    )
+except ImportError:
+    import hashlib
+
+    def hostname_hash_machine_id() -> str:
+        hostname = socket.gethostname() or "unknown"
+        return hashlib.sha256(hostname.encode("utf-8")).hexdigest()[:16]
+
+    def local_machine_id(vw_year: int | None = None) -> str:
+        return hostname_hash_machine_id()
+
+    def resolve_sync_machine_id(stored: str, vw_year: int | None = None) -> str:
+        value = (stored or "").strip()
+        if not value or value == hostname_hash_machine_id():
+            return local_machine_id(vw_year)
+        return value or local_machine_id(vw_year)
 
 PLUGIN_FOLDER = "VectorTrackScript 0.5"
 PATHS_FILENAME = "paths.json"
@@ -24,9 +45,8 @@ class SyncConfig:
     sync_on_refresh: bool = True
 
 
-def default_machine_id() -> str:
-    hostname = socket.gethostname() or "unknown"
-    return hashlib.sha256(hostname.encode("utf-8")).hexdigest()[:16]
+def default_machine_id(vw_year: int | None = None) -> str:
+    return local_machine_id(vw_year)
 
 
 def load_sync_config(vw_year: int, plugin_folder: str = PLUGIN_FOLDER) -> SyncConfig:
@@ -47,9 +67,9 @@ def load_sync_config(vw_year: int, plugin_folder: str = PLUGIN_FOLDER) -> SyncCo
 
     resolved_machine_id = ""
     if isinstance(machine_id, str) and machine_id.strip():
-        resolved_machine_id = machine_id.strip()
+        resolved_machine_id = resolve_sync_machine_id(machine_id.strip(), vw_year)
     else:
-        resolved_machine_id = default_machine_id()
+        resolved_machine_id = default_machine_id(vw_year)
 
     resolved_label = ""
     if isinstance(machine_label, str):
@@ -64,11 +84,11 @@ def load_sync_config(vw_year: int, plugin_folder: str = PLUGIN_FOLDER) -> SyncCo
     )
 
 
-def sync_config_to_dict(sync_config: SyncConfig) -> Dict[str, Any]:
+def sync_config_to_dict(sync_config: SyncConfig, vw_year: int | None = None) -> Dict[str, Any]:
     return {
         "enabled": sync_config.enabled,
         "folder": sync_config.folder,
-        "machine_id": sync_config.machine_id or default_machine_id(),
+        "machine_id": sync_config.machine_id or default_machine_id(vw_year),
         "machine_label": sync_config.machine_label,
         "sync_on_refresh": sync_config.sync_on_refresh,
     }
@@ -82,7 +102,7 @@ def save_sync_config(
     """Persist sync settings into paths.json. Returns the written file path."""
     payload = load_paths_json(vw_year, plugin_folder)
     if sync_config.enabled or sync_config.folder.strip():
-        payload["sync"] = sync_config_to_dict(sync_config)
+        payload["sync"] = sync_config_to_dict(sync_config, vw_year)
     else:
         payload.pop("sync", None)
 
@@ -94,7 +114,10 @@ def save_sync_config(
 
 
 def _normalize_name(name: str) -> str:
-    return os.path.basename((name or "").replace("\\", "/")).strip().lower()
+    basename = os.path.basename((name or "").replace("\\", "/")).strip().lower()
+    if basename.endswith(".vwx"):
+        basename = basename[:-4]
+    return basename
 
 
 def plugin_data_dir_for_year(vw_year: int, plugin_folder: str = PLUGIN_FOLDER) -> str:
@@ -185,3 +208,33 @@ def project_details_from_paths(
             return details
     return {}
 
+
+def hourly_rate_from_catalog(
+    sync_folder: str,
+    project_code: str,
+) -> float | None:
+    """Read project hourly rate from shared catalog.json when sync is configured."""
+    if not sync_folder or not project_code:
+        return None
+    catalog_file = os.path.join(sync_folder, "catalog.json")
+    if not os.path.isfile(catalog_file):
+        return None
+    try:
+        with open(catalog_file, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    projects = payload.get("projects")
+    if not isinstance(projects, list):
+        return None
+    code = str(project_code).strip().lower()
+    for entry in projects:
+        if not isinstance(entry, dict):
+            continue
+        entry_code = str(entry.get("project_code") or "").strip().lower()
+        if entry_code == code:
+            try:
+                return float(entry.get("hourly_rate"))
+            except (TypeError, ValueError):
+                return None
+    return None

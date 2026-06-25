@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from vectortrack.ui.layout_utils import configure_compact_table, scale_px
+from vectortrack.ui.theme import current_tokens, current_theme_mode, table_status_colors
 
 
 class HeatmapWidget(QWidget):
@@ -222,8 +223,9 @@ class HeatmapWidget(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, day.isoformat())
             item.setBackground(self._cell_color(hours, max_hours))
             if self._selected_day == day:
-                item.setForeground(QColor("#ffffff"))
-                item.setBackground(QColor("#1d4ed8"))
+                tokens = current_tokens()
+                item.setForeground(QColor(tokens["accent_text"]))
+                item.setBackground(QColor(tokens["accent"]))
             self.table.setItem(row, col, item)
 
     def _highlight_selected_day(self) -> None:
@@ -239,10 +241,14 @@ class HeatmapWidget(QWidget):
     @staticmethod
     def _cell_color(hours: float, max_hours: float) -> QColor:
         if hours <= 0:
-            return QColor("#2f2f2f")
+            bg, _ = table_status_colors("heatmap_empty")
+            return bg
         if max_hours <= 0:
             max_hours = 1.0
         intensity = min(1.0, hours / max_hours)
+        if current_theme_mode() == "dark":
+            value = int(72 + intensity * 128)
+            return QColor(value, value, value)
         red = int(50 + (1.0 - intensity) * 120)
         green = int(110 + intensity * 120)
         blue = int(50 + (1.0 - intensity) * 90)

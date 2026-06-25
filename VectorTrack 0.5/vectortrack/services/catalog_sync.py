@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from vectortrack.budget import BudgetType, ProjectBudget, load_project_budget, save_project_budget
 from vectortrack.models import AliasRule, BillableProject, Client
-from vectortrack.sync_folder import _parse_updated_at, _read_json_file, catalog_path, write_catalog_json
+from vectortrack.sync_folder import catalog_path, parse_updated_at, read_json_file, write_catalog_json
 
 if TYPE_CHECKING:
     from vectortrack.db.repository import Repository
@@ -222,8 +222,8 @@ def _pick_entity(
     if remote_entity is None:
         return dict(local_entity)
 
-    local_ts = _parse_updated_at(local_entity.get("updated_at"))
-    remote_ts = _parse_updated_at(remote_entity.get("updated_at"))
+    local_ts = parse_updated_at(local_entity.get("updated_at"))
+    remote_ts = parse_updated_at(remote_entity.get("updated_at"))
     if local_ts > remote_ts:
         return dict(local_entity)
     if remote_ts > local_ts:
@@ -262,8 +262,8 @@ def merge_catalogs(
         if picked is not None:
             merged_projects[key] = picked
 
-    local_ts = _parse_updated_at(local.get("updated_at"))
-    remote_ts = _parse_updated_at(remote.get("updated_at"))
+    local_ts = parse_updated_at(local.get("updated_at"))
+    remote_ts = parse_updated_at(remote.get("updated_at"))
     if local_ts >= remote_ts or local_wins_tie:
         updated_at = local.get("updated_at") or _now_iso()
     else:
@@ -302,8 +302,8 @@ def _find_similar_client(repository: Repository, name: str) -> Client | None:
 
 
 def _should_apply_remote(remote_entity: dict[str, Any], local_updated_at: str | None) -> bool:
-    remote_ts = _parse_updated_at(remote_entity.get("updated_at"))
-    local_ts = _parse_updated_at(local_updated_at)
+    remote_ts = parse_updated_at(remote_entity.get("updated_at"))
+    local_ts = parse_updated_at(local_updated_at)
     return remote_ts > local_ts
 
 
@@ -1008,7 +1008,7 @@ def read_catalog(sync_folder: str) -> dict[str, Any]:
     path = catalog_path(sync_folder)
     if not os.path.isfile(path):
         return _empty_catalog()
-    payload = _read_json_file(path)
+    payload = read_json_file(path)
     if not payload:
         return _empty_catalog()
     return payload
@@ -1021,7 +1021,7 @@ def pull_catalog(sync_folder: str, repository: Repository) -> CatalogApplySummar
     path = catalog_path(sync_folder)
     if not os.path.isfile(path):
         return CatalogApplySummary()
-    payload = _read_json_file(path)
+    payload = read_json_file(path)
     if not payload:
         return CatalogApplySummary()
     return apply_catalog_to_local(repository, payload, fuzzy_merge=False)

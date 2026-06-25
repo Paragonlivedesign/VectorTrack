@@ -16,6 +16,7 @@ from vectortrack.budget import (
     format_budget_display,
 )
 from vectortrack.ui.layout_utils import configure_compact_table
+from vectortrack.ui.theme import table_status_colors
 
 
 class ProjectSummaryTable(QTableWidget):
@@ -129,12 +130,11 @@ class ProjectSummaryTable(QTableWidget):
         return str(item.data(Qt.ItemDataRole.UserRole) or "")
 
     def _style_budget_cells(self, row: int, *, warning: bool, over_budget: bool, money_budget: bool) -> None:
-        color = None
         if over_budget:
-            color = QColor("#f2b8b5")
+            color, _ = table_status_colors("danger")
         elif warning:
-            color = QColor("#f6deb2")
-        if color is None:
+            color, _ = table_status_colors("warning")
+        else:
             return
         brush = QBrush(color)
         usage_col = 3 if money_budget else 2

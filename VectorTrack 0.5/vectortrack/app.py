@@ -132,8 +132,6 @@ def _backup_on_exit() -> None:
         paths=[
             str(config.db_path()),
             str(config.paths_json_path()),
-            str(config.projects_json_path()),
-            str(config.log_library_path()),
         ],
         label="vectortrack_exit",
     )
@@ -172,7 +170,10 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("Another VectorTrack instance is already running; raising existing window")
         SingleInstanceGuard.notify_existing()
         sys.exit(0)
-    mode = "dark" if config.ENFORCE_LICENSING and False else "light"
+    mode = "light"
+    settings = QSettings("Paragon", "VectorTrack")
+    if settings.value("dark_mode_enabled", False, type=bool):
+        mode = "dark"
     apply_theme(app, mode=mode)
     window = _init_services()
 

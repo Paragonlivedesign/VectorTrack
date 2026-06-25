@@ -20,12 +20,15 @@ $includeFiles = @(
     "vectortrack_log.py",
     "vectortrack_rates.py",
     "vectortrack_dialog.py",
+    "vectortrack_dialog_controller.py",
     "vectortrack_config.py",
     "vectortrack_sync.py",
     "vectortrack_sync_dialog.py",
     "VSM_WRAPPER.py",
     "README.md"
 )
+
+$coreSrc = Join-Path (Split-Path -Parent $base) "packages\vectortrack-core\vectortrack_core"
 
 if (-not (Test-Path $vsmPath)) {
     Write-Host "WARNING: $vsmName not found in $base" -ForegroundColor Yellow
@@ -48,6 +51,12 @@ foreach ($file in $includeFiles) {
         Copy-Item $src (Join-Path $folder $file) -Force
         Write-Host "  $file" -ForegroundColor Gray
     }
+}
+
+if (Test-Path $coreSrc) {
+    $coreDest = Join-Path $folder "vectortrack_core"
+    Copy-Item $coreSrc $coreDest -Recurse -Force
+    Write-Host "  vectortrack_core/" -ForegroundColor Gray
 }
 
 if (Test-Path $outZip) { Remove-Item $outZip -Force }

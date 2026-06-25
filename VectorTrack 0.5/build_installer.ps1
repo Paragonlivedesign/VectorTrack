@@ -22,6 +22,18 @@ if (-not (Test-Path $distExe)) {
     exit 1
 }
 
+$version = "0.5.8"
+$configPy = Join-Path $here "vectortrack\config.py"
+if (Test-Path $configPy) {
+    if ($configPy -match 'APP_VERSION\s*=\s*"([^"]+)"') { }
+    $match = Select-String -Path $configPy -Pattern 'APP_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if ($match) {
+        $version = $match.Matches[0].Groups[1].Value
+    }
+}
+
+$setupName = "VectorTrack-$version-Setup.exe"
+
 $candidates = @()
 if ($InnoCompilerPath) {
     $candidates += $InnoCompilerPath
@@ -56,13 +68,21 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$setupExe = Join-Path $installerOut "VectorTrack-0.5.0-Setup.exe"
+$setupExe = Join-Path $installerOut $setupName
+if (-not (Test-Path $setupExe)) {
+    $fallback = Get-ChildItem -Path $installerOut -Filter "VectorTrack-*-Setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($fallback) {
+        $setupExe = $fallback.FullName
+    }
+}
+
 if (-not (Test-Path $setupExe)) {
     Write-Host "Build finished but setup exe not found at expected path." -ForegroundColor Yellow
     exit 1
 }
 
 New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
-Copy-Item $setupExe (Join-Path $releaseRoot "VectorTrack-0.5.0-Setup.exe") -Force
+$releaseCopy = Join-Path $releaseRoot (Split-Path -Leaf $setupExe)
+Copy-Item $setupExe $releaseCopy -Force
 Write-Host "Installer built: $setupExe" -ForegroundColor Green
-Write-Host "Release copy: $(Join-Path $releaseRoot 'VectorTrack-0.5.0-Setup.exe')" -ForegroundColor Green
+Write-Host "Release copy: $releaseCopy" -ForegroundColor Green

@@ -32,6 +32,7 @@ from vectortrack.services.session_aggregator import SessionAggregator, UnifiedSe
 from vectortrack.ui.dialogs.session_edit_dialog import SessionEditDialog
 from vectortrack.ui.heatmap_widget import HeatmapWidget
 from vectortrack.ui.layout_utils import adaptive_dialog_size, configure_compact_table, scale_px
+from vectortrack.ui.theme import table_status_colors
 
 
 class SessionExplorerDialog(QDialog):
@@ -194,10 +195,13 @@ class SessionExplorerDialog(QDialog):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, session.uid)
                 if session.is_excluded:
-                    item.setBackground(QBrush(QColor("#e8e8e8")))
-                    item.setForeground(QBrush(QColor("#777777")))
+                    bg, fg = table_status_colors("excluded")
+                    item.setBackground(QBrush(bg))
+                    item.setForeground(QBrush(fg))
                 elif session.conflict_ids:
-                    item.setBackground(QBrush(QColor("#f6deb2")))
+                    bg, fg = table_status_colors("conflict")
+                    item.setBackground(QBrush(bg))
+                    item.setForeground(QBrush(fg))
                 self.table.setItem(row, col, item)
 
             actions = QWidget(self.table)
@@ -251,8 +255,9 @@ class SessionExplorerDialog(QDialog):
             ):
                 item = QTableWidgetItem(value)
                 if session.is_excluded:
-                    item.setBackground(QBrush(QColor("#e8e8e8")))
-                    item.setForeground(QBrush(QColor("#777777")))
+                    bg, fg = table_status_colors("excluded")
+                    item.setBackground(QBrush(bg))
+                    item.setForeground(QBrush(fg))
                 self.day_list.setItem(row, col, item)
 
     def _populate_conflicts(self) -> None:
@@ -302,8 +307,8 @@ class SessionExplorerDialog(QDialog):
             actions = QWidget(self.conflict_table)
             layout = QHBoxLayout(actions)
             layout.setContentsMargins(2, 2, 2, 2)
-            keep_a = QPushButton("Keep A")
-            keep_b = QPushButton("Keep B")
+            keep_a = QPushButton(f"Keep A ({left.machine_id[:8]})")
+            keep_b = QPushButton(f"Keep B ({right.machine_id[:8]})")
             keep_both = QPushButton("Keep Both")
             merge_btn = QPushButton("Merge")
             keep_a.clicked.connect(lambda _checked=False, winner=left, loser=right: self._resolve_keep(winner, loser))

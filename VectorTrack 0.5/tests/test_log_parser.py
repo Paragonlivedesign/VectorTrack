@@ -61,7 +61,7 @@ def test_get_total_log_hours_merges_years(tmp_path, monkeypatch):
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("vectortrack.log_parser._roaming_root", lambda: str(vw_root))
+    monkeypatch.setattr("vectortrack_core.log.parser._roaming_root", lambda: str(vw_root))
     total, count, paths = get_total_log_hours_for_file("MyProject.vwx")
     assert total == pytest.approx(5.0, abs=0.01)
     assert count == 3
@@ -87,7 +87,7 @@ def test_extract_year_from_vw_exe():
 
 def test_expected_log_path_for_exe(tmp_path, monkeypatch):
     vw_root = tmp_path / "Nemetschek" / "Vectorworks"
-    monkeypatch.setattr("vectortrack.log_parser._roaming_root", lambda: str(vw_root))
+    monkeypatch.setattr("vectortrack_core.log.parser._roaming_root", lambda: str(vw_root))
     assert expected_log_path_for_year(2026) == str(vw_root / "2026" / "Vectorworks Log.txt")
     assert expected_log_path_for_exe(r"C:\Vectorworks2026\Vectorworks2026.exe") == str(
         vw_root / "2026" / "Vectorworks Log.txt"
@@ -103,7 +103,7 @@ def test_resolve_log_paths_auto_from_exe(tmp_path, monkeypatch):
     log_2025.write_text(CLOSED_LOG, encoding="utf-8")
     log_2026.write_text("", encoding="utf-8")
 
-    monkeypatch.setattr("vectortrack.log_parser._roaming_root", lambda: str(vw_root))
+    monkeypatch.setattr("vectortrack_core.log.parser._roaming_root", lambda: str(vw_root))
     paths, desc = resolve_log_paths(
         vw_exe_path=r"C:\Vectorworks2026\Vectorworks2026.exe",
         merge_other_years=False,
@@ -121,7 +121,7 @@ def test_resolve_log_paths_manual_override(tmp_path, monkeypatch):
     log_2025.write_text(CLOSED_LOG, encoding="utf-8")
     log_2026.write_text("", encoding="utf-8")
 
-    monkeypatch.setattr("vectortrack.log_parser._roaming_root", lambda: str(vw_root))
+    monkeypatch.setattr("vectortrack_core.log.parser._roaming_root", lambda: str(vw_root))
     paths, desc = resolve_log_paths(
         manual_log_path=str(log_2025),
         merge_other_years=False,
@@ -136,7 +136,7 @@ def test_log_reconciliation_splits_closed_and_open(tmp_path, monkeypatch):
     log_path.parent.mkdir(parents=True)
     log_path.write_text(OPEN_LOG, encoding="utf-8")
 
-    monkeypatch.setattr("vectortrack.log_parser._roaming_root", lambda: str(vw_root))
+    monkeypatch.setattr("vectortrack_core.log.parser._roaming_root", lambda: str(vw_root))
     now = datetime(2025, 6, 2, 15, 0, 0)
     recon = get_log_reconciliation("MyProject.vwx", vt_live_hours=1.0, now=now)
 

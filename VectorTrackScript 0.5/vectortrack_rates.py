@@ -2,14 +2,24 @@
 Per-project hourly rate persistence (no vs dependency).
 """
 
+from __future__ import annotations
+
 import json
 import os
-from typing import Dict, Optional
+from typing import Dict
 
-from vectortrack_config import resolve_plugin_data_dir
+from vectortrack_config import load_paths_json, resolve_plugin_data_dir
 
-DEFAULT_RATE = 100.0
-RATES_FILENAME = 'rates.json'
+try:
+    from vectortrack_core.constants import DEFAULT_HOURLY_RATE as DEFAULT_RATE
+    from vectortrack_core.paths.manifest import default_hourly_rate_from_paths
+except ImportError:
+    DEFAULT_RATE = 75.0
+
+    def default_hourly_rate_from_paths(path):  # type: ignore[no-redef]
+        return DEFAULT_RATE
+
+RATES_FILENAME = "rates.json"
 
 
 def get_rates_path(plugin_data_dir: str) -> str:
@@ -22,7 +32,7 @@ def load_rates(plugin_data_dir: str) -> Dict[str, float]:
     if not os.path.isfile(path):
         return {}
     try:
-        with open(path, 'r', encoding='utf-8') as handle:
+        with open(path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
         if isinstance(data, dict):
             return {str(k): float(v) for k, v in data.items()}
@@ -34,13 +44,51 @@ def load_rates(plugin_data_dir: str) -> Dict[str, float]:
 def save_rates(plugin_data_dir: str, rates: Dict[str, float]) -> None:
     path = get_rates_path(plugin_data_dir)
     os.makedirs(plugin_data_dir, exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as handle:
+    with open(path, "w", encoding="utf-8") as handle:
         json.dump(rates, handle, indent=2)
 
 
-def get_rate(plugin_data_dir: str, project_name: str) -> float:
+def _resolve_default_rate(vw_year: int) -> float:
+    from pathlib import Path
+
+    from vectortrack_config import paths_json_path
+
+    paths_file = Path(paths_json_path(vw_year))
+    if paths_file.is_file():
+        try:
+            return float(default_hourly_rate_from_paths(paths_file))
+        except (TypeError, ValueError):
+            pass
+    payload = load_paths_json(vw_year)
+    raw = payload.get("default_hourly_rate")
+    try:
+        if raw is not None:
+            return float(raw)
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_RATE
+
+
+def get_rate(
+    plugin_data_dir: str,
+    project_name: str,
+    vw_year: int | None = None,
+    *,
+    sync_folder: str | None = None,
+    project_code: str | None = None,
+) -> float:
     rates = load_rates(plugin_data_dir)
-    return float(rates.get(project_name, DEFAULT_RATE))
+    if project_name in rates:
+        return float(rates[project_name])
+    if sync_folder and project_code:
+        from vectortrack_config import hourly_rate_from_catalog
+
+        catalog_rate = hourly_rate_from_catalog(sync_folder, project_code)
+        if catalog_rate is not None:
+            return catalog_rate
+    if vw_year is not None:
+        return _resolve_default_rate(vw_year)
+    return DEFAULT_RATE
 
 
 def set_rate(plugin_data_dir: str, project_name: str, rate: float) -> None:

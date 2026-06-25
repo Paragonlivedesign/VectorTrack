@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from vectortrack.ui.formatting import format_hours_compact, format_timer_hours
 from vectortrack.ui.layout_utils import configure_compact_table, scale_px
+from vectortrack.ui.theme import table_status_colors
 
 
 class OpenFilesTable(QTableWidget):
@@ -155,12 +156,13 @@ class OpenFilesTable(QTableWidget):
     @staticmethod
     def _style_item(item: QTableWidgetItem, row_kind: str) -> None:
         if row_kind == "active":
-            item.setBackground(QBrush(QColor("#e8f4ff")))
-            item.setForeground(QBrush(QColor("#1a1a1a")))
+            bg, fg = table_status_colors("active")
+        elif row_kind in {"open", "recent"}:
+            bg, fg = table_status_colors("inactive")
+        else:
             return
-        if row_kind in {"open", "recent"}:
-            item.setBackground(QBrush(QColor("#f0f0f0")))
-            item.setForeground(QBrush(QColor("#777777")))
+        item.setBackground(QBrush(bg))
+        item.setForeground(QBrush(fg))
 
     def selected_file_paths(self) -> List[str]:
         paths: List[str] = []

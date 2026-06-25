@@ -86,6 +86,16 @@ def test_get_file_path_from_title(process_monitor):
         process_monitor._get_file_path_from_title("Vectorworks Spotlight 2026 - [CCC Exhibit Hall v2026.vwx]")
         == "CCC Exhibit Hall v2026.vwx"
     )
+    assert (
+        process_monitor._get_file_path_from_title(
+            r"Vectorworks Spotlight 2026 - [*C:\Projects\Draft.vwx]"
+        )
+        == r"C:\Projects\Draft.vwx"
+    )
+    assert (
+        process_monitor._get_file_path_from_title("*MyProject.vwx - Vectorworks")
+        == "MyProject.vwx"
+    )
 
 
 @patch("win32gui.IsWindow")

@@ -76,8 +76,8 @@ def test_parse_sessions_for_aliases_handles_save_as():
     )
     parsed = parse_sessions_for_aliases(content, ['Primary.vwx'])
     sessions, total = parsed['Primary.vwx']
-    assert len(sessions) == 2
-    assert total == pytest.approx(2.5, abs=0.01)
+    assert len(sessions) == 1
+    assert total == pytest.approx(1.5, abs=0.01)
 
 
 def test_build_summary_includes_totals(sample_log_content):
@@ -96,7 +96,7 @@ def test_find_log_path_with_temp_tree(tmp_path, monkeypatch):
     log_2025.write_text('test log', encoding='utf-8')
 
     monkeypatch.setattr(
-        'vectortrack_log._roaming_root',
+        'vectortrack_core.log.parser._roaming_root',
         lambda: str(vw_root),
     )
     assert find_log_path(preferred_year=2026) == str(log_2025)

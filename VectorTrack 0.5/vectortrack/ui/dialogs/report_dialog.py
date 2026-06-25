@@ -87,6 +87,9 @@ class ReportDialog(QDialog):
         self.format_combo = QComboBox(self)
         self.format_combo.addItems(["PDF", "CSV", "QB", "Accountant"])
 
+        self.pdf_template_combo = QComboBox(self)
+        self.pdf_template_combo.addItems(["Standard", "Compact summary"])
+
         self.project_combo = QComboBox(self)
         self.project_combo.addItem("All Projects", "")
         for project in self.repository.list_projects(active_only=False):
@@ -105,6 +108,7 @@ class ReportDialog(QDialog):
         form.addRow("From", self.from_edit)
         form.addRow("To", self.to_edit)
         form.addRow("Format", self.format_combo)
+        form.addRow("PDF template", self.pdf_template_combo)
         form.addRow("Project filter", self.project_combo)
         form.addRow("Client filter", self.client_combo)
         form.addRow("", self.open_after_check)
@@ -163,6 +167,8 @@ class ReportDialog(QDialog):
             self.format_combo.setEnabled(True)
         else:
             self.format_combo.setEnabled(True)
+        is_pdf = self.format_combo.currentText() == "PDF"
+        self.pdf_template_combo.setEnabled(is_pdf)
 
     def _filters(self) -> ReportFilter:
         selected_project = str(self.project_combo.currentData() or "")

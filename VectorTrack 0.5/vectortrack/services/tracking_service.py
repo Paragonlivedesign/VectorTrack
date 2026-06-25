@@ -10,6 +10,7 @@ from typing import Callable, Dict, Optional
 from ..activity_monitor import ActivityMonitor
 from ..config import DEFAULT_IDLE_BYPASS_MODE, DEFAULT_IDLE_PAUSE_ENABLED, IDLE_BYPASS_MODES
 from ..process_monitor import ProcessMonitor, WindowInfo
+from .tracking_persistence import TrackingPersistence
 
 
 UNTITLED_TOKENS = ("untitled", "opening file:")
@@ -41,7 +42,7 @@ class TrackingService:
         self,
         process_monitor: ProcessMonitor,
         activity_monitor: ActivityMonitor,
-        repository: object,
+        repository: TrackingPersistence,
         autosave_seconds: int = 30,
         meeting_duration_minutes: int = 30,
         untitled_hook: Optional[Callable[[str], None]] = None,
@@ -138,6 +139,12 @@ class TrackingService:
         if active_window and active_window.file_path and not self._is_untitled(active_window.file_path):
             file_path = active_window.file_path
         elif (
+            self.current_state
+            and self.current_state.file_path in open_paths
+            and self.process_monitor.is_render_grace_window()
+        ):
+            file_path = self.current_state.file_path
+        elif (
             self.idle_bypass_mode == "vw_file_open"
             and self.current_state
             and self.current_state.file_path in open_paths
@@ -201,7 +208,7 @@ class TrackingService:
                 meeting_mode=is_meeting,
             )
             self.states_by_file[file_path] = state
-            self._repository_call("start_session", state)
+            self.repository.start_session(state)
         state.meeting_mode = is_meeting
         self.current_state = state
         return state
@@ -212,7 +219,7 @@ class TrackingService:
         if elapsed <= 0:
             return
         state.tracked_seconds += elapsed
-        self._repository_call("update_session_duration", state, elapsed)
+        self.repository.update_session_duration(state, elapsed)
 
     def _autosave_if_needed(self, now: datetime) -> None:
         if not self.current_state:
@@ -220,22 +227,16 @@ class TrackingService:
         if self.last_autosave_at and (now - self.last_autosave_at) < self.autosave_interval:
             return
         self.last_autosave_at = now
-        for method in ("save_session", "upsert_session", "save_tracking_state", "autosave"):
-            if self._repository_call(method, self.current_state):
-                break
+        if hasattr(self.repository, "upsert_open_session"):
+            self.repository.upsert_open_session(self.current_state)
+        else:
+            self.repository.start_session(self.current_state)
 
     def _end_current_session(self) -> None:
         if not self.current_state:
             return
-        self._repository_call("end_session", self.current_state)
+        self.repository.end_session(self.current_state)
         self.current_state = None
-
-    def _repository_call(self, method_name: str, *args) -> bool:
-        method = getattr(self.repository, method_name, None)
-        if not callable(method):
-            return False
-        method(*args)
-        return True
 
     @staticmethod
     def _project_id_for(file_path: str) -> str:

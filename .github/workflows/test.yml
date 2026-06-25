@@ -1,0 +1,55 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install desktop dependencies
+        working-directory: VectorTrack 0.5
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run desktop tests
+        working-directory: VectorTrack 0.5
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: python -m pytest tests/ -q -m "not gui"
+
+  plugin:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install core + plugin test deps
+        run: |
+          python -m pip install --upgrade pip pytest
+          pip install -e packages/vectortrack-core
+      - name: Run plugin tests
+        working-directory: VectorTrackScript 0.5
+        run: python -m pytest -q
+
+  core:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run core parity tests
+        run: |
+          python -m pip install --upgrade pip pytest
+          pip install -e packages/vectortrack-core
+          pip install -e "VectorTrack 0.5"
+          python -m pytest packages/vectortrack-core/tests -q

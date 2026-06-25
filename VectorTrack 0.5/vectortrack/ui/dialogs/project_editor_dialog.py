@@ -1,19 +1,29 @@
-"""Basic project and alias editor dialog."""
+"""Project editor with details, assigned files, and alias management."""
 
 from __future__ import annotations
+
+import os
+from collections.abc import Callable
+from typing import Any
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
-    QFormLayout,
+    QGridLayout,
+    QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QProgressBar,
     QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -28,23 +38,36 @@ class ProjectEditorDialog(QDialog):
         repository: object,
         parent: QWidget | None = None,
         initial_project_code: str | None = None,
+        *,
+        file_assignments: dict[str, str] | None = None,
+        on_unassign_file: Callable[[str], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.repository = repository
         self._initial_project_code = (initial_project_code or "").strip()
-        self.setWindowTitle("Project + Alias Editor")
-        self.resize(640, 420)
+        self._file_assignments = file_assignments if file_assignments is not None else {}
+        self._on_unassign_file = on_unassign_file
+        self._projects: list[BillableProject] = []
+        self.setWindowTitle("Project Editor")
+        self.resize(980, 680)
 
-        layout = QHBoxLayout(self)
-        project_column = QVBoxLayout()
-        project_column.addWidget(QLabel("Projects"))
+        root = QHBoxLayout(self)
+
+        sidebar = QVBoxLayout()
+        sidebar.addWidget(QLabel("Projects"))
+        self.project_filter = QLineEdit()
+        self.project_filter.setPlaceholderText("Search projects...")
+        self.project_filter.textChanged.connect(self._apply_project_filter)
+        sidebar.addWidget(self.project_filter)
         self.project_list = QListWidget()
         self.project_list.currentItemChanged.connect(self._on_project_selected)
-        project_column.addWidget(self.project_list, 1)
-        layout.addLayout(project_column, 1)
+        sidebar.addWidget(self.project_list, 1)
+        root.addLayout(sidebar, 1)
 
-        editor = QVBoxLayout()
-        form = QFormLayout()
+        right = QVBoxLayout()
+
+        details_group = QGroupBox("Project Details")
+        details_layout = QGridLayout(details_group)
         self.client_name = QLineEdit()
         self.project_code = QLineEdit()
         self.project_code.setPlaceholderText("Optional")
@@ -53,31 +76,96 @@ class ProjectEditorDialog(QDialog):
         self.hourly_rate.setRange(0, 10000)
         self.hourly_rate.setDecimals(2)
         self.hourly_rate.setValue(75.0)
-        self.alias_entry = QLineEdit()
-        self.alias_entry.setPlaceholderText("Alias pattern or filename")
+        self.budget_hours = QDoubleSpinBox()
+        self.budget_hours.setRange(0, 100000)
+        self.budget_hours.setDecimals(2)
+        self.budget_hours.setSuffix(" h")
+        self.budget_hours.setToolTip("Set to 0 for no budget. Drives the progress bar on the Projects tab.")
         self.invoice_number = QLineEdit()
         self.invoice_number.setPlaceholderText("Invoice # when locking")
         self.lock_status = QLabel("Unlocked")
-        form.addRow("Client", self.client_name)
-        form.addRow("Project Number (optional)", self.project_code)
-        form.addRow("Project Name", self.project_name)
-        form.addRow("Hourly Rate", self.hourly_rate)
-        form.addRow("Invoice #", self.invoice_number)
-        form.addRow("Lock Status", self.lock_status)
-        form.addRow("New Alias", self.alias_entry)
-        editor.addLayout(form)
+        self.lock_status.setObjectName("muted")
 
+        details_layout.addWidget(QLabel("Client"), 0, 0)
+        details_layout.addWidget(self.client_name, 0, 1)
+        details_layout.addWidget(QLabel("Project Number"), 0, 2)
+        details_layout.addWidget(self.project_code, 0, 3)
+        details_layout.addWidget(QLabel("Project Name"), 1, 0)
+        details_layout.addWidget(self.project_name, 1, 1, 1, 3)
+        details_layout.addWidget(QLabel("Hourly Rate"), 2, 0)
+        details_layout.addWidget(self.hourly_rate, 2, 1)
+        details_layout.addWidget(QLabel("Budget (hours)"), 2, 2)
+        details_layout.addWidget(self.budget_hours, 2, 3)
+        details_layout.addWidget(QLabel("Invoice #"), 3, 0)
+        details_layout.addWidget(self.invoice_number, 3, 1)
+        details_layout.addWidget(QLabel("Lock Status"), 3, 2)
+        details_layout.addWidget(self.lock_status, 3, 3)
+        right.addWidget(details_group)
+
+        summary_row = QHBoxLayout()
+        self.summary_sessions = QLabel("0 sessions")
+        self.summary_sessions.setObjectName("muted")
+        self.summary_tracked = QLabel("0.00h tracked")
+        self.summary_tracked.setObjectName("muted")
+        self.summary_billable = QLabel("$0.00 billable")
+        self.summary_billable.setObjectName("muted")
+        self.summary_aliases = QLabel("0 aliases")
+        self.summary_aliases.setObjectName("muted")
+        summary_row.addWidget(self.summary_sessions)
+        summary_row.addWidget(self.summary_tracked)
+        summary_row.addWidget(self.summary_billable)
+        summary_row.addWidget(self.summary_aliases)
+        summary_row.addStretch()
+        right.addLayout(summary_row)
+
+        self.budget_progress = QProgressBar()
+        self.budget_progress.setRange(0, 100)
+        self.budget_progress.setFormat("Budget: %p%")
+        self.budget_progress.hide()
+        right.addWidget(self.budget_progress)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+
+        files_group = QGroupBox("Assigned Files")
+        files_layout = QVBoxLayout(files_group)
+        self.files_table = QTableWidget(0, 4)
+        self.files_table.setHorizontalHeaderLabels(["File", "Status", "Tracked", ""])
+        self.files_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.files_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.files_table.verticalHeader().setVisible(False)
+        header = self.files_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        files_layout.addWidget(self.files_table)
+        self.files_hint = QLabel("Select a project to view assigned files.")
+        self.files_hint.setObjectName("muted")
+        self.files_hint.setWordWrap(True)
+        files_layout.addWidget(self.files_hint)
+        splitter.addWidget(files_group)
+
+        aliases_group = QGroupBox("Filename Aliases")
+        aliases_layout = QVBoxLayout(aliases_group)
+        alias_row = QHBoxLayout()
+        self.alias_entry = QLineEdit()
+        self.alias_entry.setPlaceholderText("Alias pattern or filename")
+        add_alias_btn = QPushButton("Add Alias")
+        add_alias_btn.clicked.connect(self._add_alias)
+        alias_row.addWidget(self.alias_entry, 1)
+        alias_row.addWidget(add_alias_btn)
+        aliases_layout.addLayout(alias_row)
         self.alias_list = QListWidget()
-        editor.addWidget(QLabel("Aliases"))
-        editor.addWidget(self.alias_list, 1)
+        aliases_layout.addWidget(self.alias_list, 1)
+        splitter.addWidget(aliases_group)
+        splitter.setSizes([320, 180])
+        right.addWidget(splitter, 1)
 
         actions = QHBoxLayout()
         create_btn = QPushButton("Create Project")
         create_btn.clicked.connect(self._create_project)
         self.save_btn = QPushButton("Save Project")
         self.save_btn.clicked.connect(self._save_project)
-        add_alias_btn = QPushButton("Add Alias")
-        add_alias_btn.clicked.connect(self._add_alias)
         self.lock_btn = QPushButton("Lock Project")
         self.lock_btn.clicked.connect(self._toggle_lock)
         delete_btn = QPushButton("Delete Project")
@@ -86,35 +174,56 @@ class ProjectEditorDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         actions.addWidget(create_btn)
         actions.addWidget(self.save_btn)
-        actions.addWidget(add_alias_btn)
         actions.addWidget(self.lock_btn)
         actions.addWidget(delete_btn)
         actions.addStretch()
         actions.addWidget(close_btn)
-        editor.addLayout(actions)
-        layout.addLayout(editor, 2)
+        right.addLayout(actions)
+        root.addLayout(right, 3)
 
         self._refresh_projects()
         self._select_project_by_code(self._initial_project_code)
 
     def _refresh_projects(self) -> None:
         selected_code = self._selected_project_code()
-        self.project_list.clear()
-        projects = self.repository.list_projects(active_only=False)
-        if not projects:
+        self._projects = self.repository.list_projects(active_only=False)
+        self._apply_project_filter(self.project_filter.text())
+
+        if not self._projects:
+            self.project_list.clear()
             placeholder = QListWidgetItem("(No projects yet — use Create Project)")
             placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
             self.project_list.addItem(placeholder)
             self._clear_form()
             return
-        for project in projects:
-            item_text = project_display_name(project.name, project.project_code)
-            self.project_list.addItem(item_text)
+        if selected_code:
+            self._select_project_by_code(selected_code)
+
+    def _apply_project_filter(self, text: str) -> None:
+        needle = text.strip().lower()
+        selected_code = self._selected_project_code()
+        self.project_list.blockSignals(True)
+        self.project_list.clear()
+        visible_codes: list[str] = []
+        for project in self._projects:
+            label = project_display_name(project.name, project.project_code)
+            if project.is_locked:
+                label += " [LOCKED]"
+            haystack = f"{label} {project.project_code} {project.name}".lower()
+            if needle and needle not in haystack:
+                continue
+            self.project_list.addItem(label)
             list_item = self.project_list.item(self.project_list.count() - 1)
             if list_item is not None:
                 list_item.setData(Qt.ItemDataRole.UserRole, project.project_code)
-        if selected_code:
+                visible_codes.append(project.project_code)
+        self.project_list.blockSignals(False)
+        if selected_code and selected_code in visible_codes:
             self._select_project_by_code(selected_code)
+        elif self.project_list.count() > 0:
+            self.project_list.setCurrentRow(0)
+        elif not needle:
+            self._clear_form()
 
     def _select_project_by_code(self, project_code: str) -> None:
         if not project_code:
@@ -132,12 +241,20 @@ class ProjectEditorDialog(QDialog):
         self.project_code.clear()
         self.project_name.clear()
         self.hourly_rate.setValue(75.0)
+        self.budget_hours.setValue(0.0)
         self.invoice_number.clear()
         self.alias_entry.clear()
         self.alias_list.clear()
+        self.files_table.setRowCount(0)
         self.lock_status.setText("Unlocked")
         self.lock_btn.setText("Lock Project")
         self.alias_entry.setEnabled(True)
+        self.summary_sessions.setText("0 sessions")
+        self.summary_tracked.setText("0.00h tracked")
+        self.summary_billable.setText("$0.00 billable")
+        self.summary_aliases.setText("0 aliases")
+        self.budget_progress.hide()
+        self.files_hint.setText("Select a project to view assigned files.")
         self._set_form_enabled(True)
 
     def _set_form_enabled(self, enabled: bool) -> None:
@@ -146,6 +263,164 @@ class ProjectEditorDialog(QDialog):
         self.project_name.setEnabled(enabled)
         self.hourly_rate.setEnabled(enabled)
         self.save_btn.setEnabled(enabled)
+
+    def _budget_setting_key(self, project_code: str) -> str:
+        return f"budget_hours:{project_code}"
+
+    def _load_budget_hours(self, project_code: str) -> float:
+        raw = self.repository.get_setting(self._budget_setting_key(project_code), "0") or "0"
+        try:
+            hours = float(raw)
+        except ValueError:
+            hours = 0.0
+        self.budget_hours.setValue(hours)
+        return hours
+
+    def _save_budget_hours(self, project_code: str) -> None:
+        hours = float(self.budget_hours.value())
+        self.repository.set_setting(self._budget_setting_key(project_code), f"{hours:.2f}")
+
+    def _migrate_budget_hours(self, old_code: str, new_code: str) -> None:
+        if not old_code or old_code == new_code:
+            return
+        old_key = self._budget_setting_key(old_code)
+        new_key = self._budget_setting_key(new_code)
+        raw = self.repository.get_setting(old_key, "0") or "0"
+        try:
+            hours = float(raw)
+        except ValueError:
+            hours = 0.0
+        if hours > 0:
+            self.repository.set_setting(new_key, f"{hours:.2f}")
+        self.repository.set_setting(old_key, "0")
+
+    def _session_stats_by_file(self, project_code: str) -> dict[str, dict[str, Any]]:
+        stats: dict[str, dict[str, Any]] = {}
+        for session in self.repository.list_sessions(project_id=project_code, include_open=True, limit=15000):
+            path = (session.file_path or "").strip()
+            if not path:
+                continue
+            agg = stats.setdefault(path, {"hours": 0.0, "has_open": False})
+            agg["hours"] += session.active_duration.total_seconds() / 3600.0
+            if session.end_time is None:
+                agg["has_open"] = True
+        return stats
+
+    def _assigned_file_rows(self, project_code: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        stats = self._session_stats_by_file(project_code)
+
+        for path, code in self._file_assignments.items():
+            if str(code).strip() != project_code or not path:
+                continue
+            seen.add(path)
+            status = "Assigned"
+            if stats.get(path, {}).get("has_open"):
+                status = "Assigned · open"
+            rows.append(
+                {
+                    "file_path": path,
+                    "status": status,
+                    "can_unassign": True,
+                    "hours": float(stats.get(path, {}).get("hours", 0.0)),
+                }
+            )
+
+        for path, agg in stats.items():
+            if path in seen:
+                continue
+            seen.add(path)
+            rows.append(
+                {
+                    "file_path": path,
+                    "status": "Open session" if agg["has_open"] else "Session history",
+                    "can_unassign": False,
+                    "hours": float(agg["hours"]),
+                }
+            )
+
+        rows.sort(key=lambda item: os.path.basename(str(item["file_path"])).lower())
+        return rows
+
+    def _refresh_assigned_files(self, project_code: str) -> None:
+        self.files_table.setRowCount(0)
+        if not project_code:
+            self.files_hint.setText("Select a project to view assigned files.")
+            return
+
+        rows = self._assigned_file_rows(project_code)
+        if not rows:
+            self.files_hint.setText("No files are assigned to this project yet.")
+            return
+
+        override_count = sum(1 for row in rows if row["can_unassign"])
+        self.files_hint.setText(
+            f"{len(rows)} file(s) linked to this project "
+            f"({override_count} active assignment{'s' if override_count != 1 else ''})."
+        )
+
+        for data in rows:
+            row = self.files_table.rowCount()
+            self.files_table.insertRow(row)
+            file_path = str(data["file_path"])
+            name_item = QTableWidgetItem(os.path.basename(file_path))
+            name_item.setToolTip(file_path)
+            name_item.setData(Qt.ItemDataRole.UserRole, file_path)
+            self.files_table.setItem(row, 0, name_item)
+            self.files_table.setItem(row, 1, QTableWidgetItem(str(data["status"])))
+            self.files_table.setItem(row, 2, QTableWidgetItem(f'{float(data["hours"]):.2f}h'))
+
+            if data["can_unassign"]:
+                unassign_btn = QPushButton("Unassign")
+                unassign_btn.clicked.connect(
+                    lambda _checked=False, fp=file_path: self._unassign_file(fp)
+                )
+                self.files_table.setCellWidget(row, 3, unassign_btn)
+            else:
+                self.files_table.setItem(row, 3, QTableWidgetItem(""))
+
+    def _unassign_file(self, file_path: str) -> None:
+        if not file_path:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Unassign file",
+            f"Remove project assignment for\n{os.path.basename(file_path)}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if self._on_unassign_file is not None:
+            self._on_unassign_file(file_path)
+        self._file_assignments.pop(file_path, None)
+        project_code = self._selected_project_code()
+        if project_code:
+            self._refresh_assigned_files(project_code)
+
+    def _refresh_summary(self, project_code: str, *, alias_count: int, budget_hours: float) -> None:
+        sessions = self.repository.list_sessions(project_id=project_code, include_open=True, limit=15000)
+        tracked = sum(session.active_duration.total_seconds() / 3600.0 for session in sessions)
+        billable = sum(float(session.billable_amount) for session in sessions)
+        self.summary_sessions.setText(f"{len(sessions)} session{'s' if len(sessions) != 1 else ''}")
+        self.summary_tracked.setText(f"{tracked:.2f}h tracked")
+        self.summary_billable.setText(f"${billable:.2f} billable")
+        self.summary_aliases.setText(f"{alias_count} alias{'es' if alias_count != 1 else ''}")
+
+        if budget_hours <= 0:
+            self.budget_progress.hide()
+            return
+        progress_pct = max(0, min(100, int((tracked / budget_hours) * 100)))
+        self.budget_progress.setValue(progress_pct)
+        self.budget_progress.setFormat(f"Budget: {progress_pct}% ({tracked:.1f} / {budget_hours:.1f} h)")
+        if tracked > budget_hours:
+            self.budget_progress.setStyleSheet("QProgressBar::chunk { background-color: #c44242; }")
+        elif tracked >= budget_hours * 0.8:
+            self.budget_progress.setStyleSheet("QProgressBar::chunk { background-color: #d4a72c; }")
+        else:
+            self.budget_progress.setStyleSheet("QProgressBar::chunk { background-color: #2a9d5a; }")
+        self.budget_progress.show()
 
     def _selected_project_code(self) -> str:
         current = self.project_list.currentItem()
@@ -182,6 +457,7 @@ class ProjectEditorDialog(QDialog):
                 hourly_rate=float(self.hourly_rate.value()),
             )
         )
+        self._save_budget_hours(resolved_code)
         self._refresh_projects()
         self._select_project_by_code(resolved_code)
 
@@ -195,7 +471,13 @@ class ProjectEditorDialog(QDialog):
             QMessageBox.warning(self, "Project missing", "Selected project was not found.")
             return
         if project.is_locked:
-            QMessageBox.warning(self, "Project locked", "Unlock the project before editing.")
+            self._save_budget_hours(project_code)
+            QMessageBox.information(
+                self,
+                "Budget saved",
+                "Budget updated. Other project fields are locked for billing.",
+            )
+            self._load_project_details(project_code)
             return
 
         name = self.project_name.text().strip()
@@ -238,11 +520,19 @@ class ProjectEditorDialog(QDialog):
             QMessageBox.warning(self, "Project locked", str(exc))
             return
 
+        if resolved_code != project_code:
+            self._migrate_budget_hours(project_code, resolved_code)
+            for path, assigned_code in list(self._file_assignments.items()):
+                if assigned_code == project_code:
+                    self._file_assignments[path] = resolved_code
+        self._save_budget_hours(resolved_code)
+
         self._refresh_projects()
         self._select_project_by_code(resolved_code)
 
     def _load_project_details(self, project_code: str) -> None:
         self.alias_list.clear()
+        self.files_table.setRowCount(0)
         if not project_code:
             self._clear_form()
             return
@@ -258,7 +548,12 @@ class ProjectEditorDialog(QDialog):
         display_code = "" if stored_code == project.name.strip() else stored_code
         self.project_code.setText(display_code)
         self.hourly_rate.setValue(float(project.hourly_rate))
+        budget_hours = self._load_budget_hours(project_code)
         self.invoice_number.setText(project.invoice_number or "")
+
+        alias_rules = self.repository.list_alias_rules(project_id=project.id, active_only=False)
+        for rule in alias_rules:
+            self.alias_list.addItem(rule.alias_pattern)
 
         if project.is_locked:
             locked_at = project.locked_at or "unknown"
@@ -266,14 +561,17 @@ class ProjectEditorDialog(QDialog):
             self.lock_btn.setText("Unlock Project")
             self.alias_entry.setEnabled(False)
             self._set_form_enabled(False)
+            self.save_btn.setEnabled(True)
+            self.budget_hours.setEnabled(True)
         else:
             self.lock_status.setText("Unlocked")
             self.lock_btn.setText("Lock Project")
             self.alias_entry.setEnabled(True)
             self._set_form_enabled(True)
+            self.budget_hours.setEnabled(True)
 
-        for rule in self.repository.list_alias_rules(project_id=project.id, active_only=False):
-            self.alias_list.addItem(rule.alias_pattern)
+        self._refresh_summary(project_code, alias_count=len(alias_rules), budget_hours=budget_hours)
+        self._refresh_assigned_files(project_code)
 
     def _toggle_lock(self) -> None:
         project_code = self._selected_project_code()
@@ -291,6 +589,7 @@ class ProjectEditorDialog(QDialog):
                 QMessageBox.warning(self, "Invoice required", "Enter an invoice number before locking.")
                 return
             self.repository.set_project_lock(project_code, locked=True, invoice_number=invoice)
+        self._refresh_projects()
         self._load_project_details(project_code)
 
     def _add_alias(self) -> None:
@@ -320,12 +619,13 @@ class ProjectEditorDialog(QDialog):
             return
 
         session_count = self.repository.count_sessions_for_project(project_code)
+        assigned_count = sum(1 for code in self._file_assignments.values() if code == project_code)
         label = project_display_name(project.name, project.project_code)
         message = f"Delete project '{label}'?"
         if session_count:
-            message += (
-                f"\n\n{session_count} session(s) will be moved to unassigned."
-            )
+            message += f"\n\n{session_count} session(s) will be moved to unassigned."
+        if assigned_count:
+            message += f"\n\n{assigned_count} file assignment(s) will be removed."
         if project.is_locked:
             message += "\n\nThis project is locked for billing."
         message += "\n\nThis cannot be undone."
@@ -346,5 +646,11 @@ class ProjectEditorDialog(QDialog):
             QMessageBox.warning(self, "Unable to delete", str(exc))
             return
 
-        self._refresh_projects()
+        for path, code in list(self._file_assignments.items()):
+            if code == project_code:
+                if self._on_unassign_file is not None:
+                    self._on_unassign_file(path)
+                else:
+                    self._file_assignments.pop(path, None)
 
+        self._refresh_projects()

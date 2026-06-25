@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QItemSelection, QItemSelectionModel, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import QProgressBar, QTableWidget, QTableWidgetItem, QWidget
 
@@ -25,39 +25,66 @@ class ProjectSummaryTable(QTableWidget):
         self.cellDoubleClicked.connect(self._on_double_click)
 
     def set_rows(self, rows: Iterable[dict[str, object]]) -> None:
-        self.setRowCount(0)
-        for data in rows:
-            row = self.rowCount()
-            self.insertRow(row)
-            tracked = float(data.get("tracked_hours", 0.0))
-            budget = float(data.get("budget_hours", 0.0))
-            progress_pct = 0 if budget <= 0 else max(0, min(100, int((tracked / budget) * 100)))
-            columns = [
-                str(data.get("project", "")),
-                f'${float(data.get("rate", 0.0)):.2f}',
-                f"{tracked:.2f}h",
-                f'${float(data.get("billable", 0.0)):.2f}',
-                "N/A" if budget <= 0 else f"{budget:.2f}h",
-            ]
-            for col, value in enumerate(columns):
-                item = QTableWidgetItem(value)
-                if col == 0:
-                    item.setData(Qt.ItemDataRole.UserRole, str(data.get("project_code") or data.get("project", "")))
-                self.setItem(row, col, item)
-            bar = QProgressBar(self)
-            bar.setRange(0, 100)
-            bar.setValue(progress_pct)
-            bar.setFormat(f"{progress_pct}%")
-            warning = budget > 0 and tracked >= (budget * 0.8)
-            over_budget = budget > 0 and tracked > budget
-            if budget > 0 and tracked > budget:
-                bar.setStyleSheet("QProgressBar::chunk { background-color: #c44242; }")
-            elif budget > 0 and tracked >= (budget * 0.8):
-                bar.setStyleSheet("QProgressBar::chunk { background-color: #d4a72c; }")
-            else:
-                bar.setStyleSheet("QProgressBar::chunk { background-color: #2a9d5a; }")
-            self.setCellWidget(row, 5, bar)
-            self._style_budget_cells(row, warning=warning, over_budget=over_budget)
+        selected_code = ""
+        current_row = self.currentRow()
+        if current_row >= 0:
+            selected_code = self.project_code_for_row(current_row)
+        self.setUpdatesEnabled(False)
+        try:
+            self.setRowCount(0)
+            for data in rows:
+                row = self.rowCount()
+                self.insertRow(row)
+                tracked = float(data.get("tracked_hours", 0.0))
+                budget = float(data.get("budget_hours", 0.0))
+                progress_pct = 0 if budget <= 0 else max(0, min(100, int((tracked / budget) * 100)))
+                columns = [
+                    str(data.get("project", "")),
+                    f'${float(data.get("rate", 0.0)):.2f}',
+                    f"{tracked:.2f}h",
+                    f'${float(data.get("billable", 0.0)):.2f}',
+                    "N/A" if budget <= 0 else f"{budget:.2f}h",
+                ]
+                for col, value in enumerate(columns):
+                    item = QTableWidgetItem(value)
+                    if col == 0:
+                        item.setData(Qt.ItemDataRole.UserRole, str(data.get("project_code") or data.get("project", "")))
+                    self.setItem(row, col, item)
+                bar = QProgressBar(self)
+                bar.setRange(0, 100)
+                bar.setValue(progress_pct)
+                bar.setFormat(f"{progress_pct}%")
+                warning = budget > 0 and tracked >= (budget * 0.8)
+                over_budget = budget > 0 and tracked > budget
+                if budget > 0 and tracked > budget:
+                    bar.setStyleSheet("QProgressBar::chunk { background-color: #c44242; }")
+                elif budget > 0 and tracked >= (budget * 0.8):
+                    bar.setStyleSheet("QProgressBar::chunk { background-color: #d4a72c; }")
+                else:
+                    bar.setStyleSheet("QProgressBar::chunk { background-color: #2a9d5a; }")
+                self.setCellWidget(row, 5, bar)
+                self._style_budget_cells(row, warning=warning, over_budget=over_budget)
+        finally:
+            self.setUpdatesEnabled(True)
+        self._restore_selection(selected_code)
+
+    def _restore_selection(self, project_code: str) -> None:
+        if not project_code:
+            return
+        for row in range(self.rowCount()):
+            if self.project_code_for_row(row) != project_code:
+                continue
+            selection = QItemSelection()
+            last_col = self.columnCount() - 1
+            selection.select(self.model().index(row, 0), self.model().index(row, last_col))
+            model = self.selectionModel()
+            if model is None:
+                return
+            model.select(
+                selection,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows,
+            )
+            return
 
     def project_code_for_row(self, row: int) -> str:
         item = self.item(row, 0)

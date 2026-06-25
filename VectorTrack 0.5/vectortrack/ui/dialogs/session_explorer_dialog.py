@@ -85,7 +85,7 @@ class SessionExplorerDialog(QDialog):
 
         self.calendar_tab = QWidget(self)
         calendar_layout = QVBoxLayout(self.calendar_tab)
-        self.heatmap = HeatmapWidget(self.calendar_tab)
+        self.heatmap = HeatmapWidget(self.calendar_tab, show_day_details=False)
         self.heatmap.day_clicked.connect(self._on_day_clicked)
         calendar_layout.addWidget(self.heatmap)
         self.day_list = QTableWidget(0, 5, self.calendar_tab)

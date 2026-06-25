@@ -27,6 +27,7 @@ from vectortrack.config import (
     ENFORCE_LICENSING,
     IDLE_BYPASS_MODES,
     IDLE_TIMEOUT_HELPER_TEXT,
+    SHOW_PORTABLE_MODE_UI,
 )
 from vectortrack.services.autostart import is_enabled as autostart_is_enabled
 from vectortrack.services.vw_identity import (
@@ -174,7 +175,10 @@ class SettingsDialog(QDialog):
 
         self.portable_mode = QCheckBox("Portable mode (store data next to app)")
         self.portable_mode.setChecked(settings.value("portable_mode", False, type=bool))
-        form.addRow("", self.portable_mode)
+        if SHOW_PORTABLE_MODE_UI:
+            form.addRow("", self.portable_mode)
+        else:
+            self.portable_mode.hide()
 
         self.autostart = QCheckBox("Start VectorTrack in the system tray when Windows starts")
         self.autostart.setChecked(settings.value("autostart_enabled", autostart_is_enabled(), type=bool))
@@ -228,6 +232,6 @@ class SettingsDialog(QDialog):
             "global_hotkeys_enabled": self.global_hotkeys.isChecked(),
             "eod_notify_enabled": self.eod_notify.isChecked(),
             "eod_notify_hour": self.eod_hour.value(),
-            "portable_mode": self.portable_mode.isChecked(),
+            "portable_mode": self.portable_mode.isChecked() if SHOW_PORTABLE_MODE_UI else False,
             "autostart_enabled": self.autostart.isChecked(),
         }

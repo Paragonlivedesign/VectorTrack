@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.6-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Project Editor redesign** — searchable project list, budget hours field, assigned-files table with unassign, progress summary
+- **Heatmap** — click a day to see session breakdown; jump to History for that day
+- **Project Summary** — selection preserved when the table refreshes (less flicker)
+- **Settings** — portable mode hidden from UI; installed builds always use AppData
+- Installer artifact: `VectorTrack-0.5.6-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.6 beta**
+
+---
+
 ## [0.5.5-beta] — 2026-06
 
 ### VectorTrack (desktop)

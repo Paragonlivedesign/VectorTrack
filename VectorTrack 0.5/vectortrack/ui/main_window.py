@@ -212,7 +212,8 @@ class MainWindow(QMainWindow):
         self.open_files_table.edit_rate_requested.connect(self._edit_rate_for_file)
         self.project_summary_table.view_sessions_requested.connect(self._open_session_explorer_for_project)
         self.project_summary_table.edit_project_requested.connect(self._show_project_editor)
-        self.heatmap_widget.day_clicked.connect(self._jump_history_to_day)
+        self.heatmap_widget.day_clicked.connect(self._show_heatmap_day_details)
+        self.heatmap_widget.view_in_history_requested.connect(self._jump_history_to_day)
         self.clients_tab.edit_client_requested.connect(self._open_client_editor)
         self.clients_tab.statement_requested.connect(self._generate_client_statement)
 
@@ -1293,6 +1294,15 @@ class MainWindow(QMainWindow):
                 totals[day] = totals.get(day, 0.0) + (session.active_duration.total_seconds() / 3600.0)
         self.heatmap_widget.set_day_values(totals)
 
+    def _show_heatmap_day_details(self, selected_day: date) -> None:
+        day_start = datetime.combine(selected_day, time.min)
+        day_end = day_start + timedelta(days=1) - timedelta(seconds=1)
+        if self.import_vw_log_history:
+            rows = self._history_rows_from_merged("", day_start, day_end)
+        else:
+            rows = self._history_rows_from_db("", day_start, day_end)
+        self.heatmap_widget.show_day_details(selected_day, rows)
+
     def _jump_history_to_day(self, selected_day: date) -> None:
         day_start = datetime.combine(selected_day, time.min)
         day_end = day_start + timedelta(days=1) - timedelta(seconds=1)
@@ -1481,8 +1491,8 @@ class MainWindow(QMainWindow):
         self.hotkey_service.set_enabled(
             self.global_hotkeys_enabled and os.environ.get("VECTORTRACK_TESTING") != "1"
         )
-        if values.get("portable_mode") is not None:
-            config.set_portable_mode(bool(values["portable_mode"]))
+        config.set_portable_mode(False)
+        self.settings.setValue("portable_mode", False)
         try:
             set_autostart_enabled(bool(values.get("autostart_enabled", False)))
         except OSError as exc:
@@ -1524,6 +1534,11 @@ class MainWindow(QMainWindow):
             self._maybe_push_assignments(force=True)
         self._tick()
 
+    def _unassign_file_from_project(self, file_path: str) -> None:
+        if file_path in self.file_project_overrides:
+            del self.file_project_overrides[file_path]
+            self._save_project_overrides()
+
     def _show_project_editor(self, project_code: str | None = None) -> None:
         code = (project_code or "").strip()
         if code:
@@ -1532,6 +1547,8 @@ class MainWindow(QMainWindow):
             self.repository,
             self,
             initial_project_code=code or None,
+            file_assignments=self.file_project_overrides,
+            on_unassign_file=self._unassign_file_from_project,
         ).exec()
         self._sync_orphan_project_assignments()
         self._tick()

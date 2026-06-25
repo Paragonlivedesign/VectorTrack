@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 APP_NAME = "VectorTrack"
-APP_VERSION = "0.5.5"
+APP_VERSION = "0.5.6"
 APP_BETA = True
 
 GITHUB_REPO_OWNER = "Paragonlivedesign"
@@ -30,6 +30,7 @@ def format_version(*, include_product_name: bool = False) -> str:
     return label
 
 ENFORCE_LICENSING = False
+SHOW_PORTABLE_MODE_UI = False
 
 PARAGON_VENDOR = "Paragon"
 PARAGON_VENDOR_DIR = "Paragon"

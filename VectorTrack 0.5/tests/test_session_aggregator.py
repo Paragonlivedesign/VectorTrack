@@ -16,6 +16,7 @@ from vectortrack.services.session_aggregator import (
     machine_id_from_log_path,
     normalize_file_name,
 )
+from vectortrack.services.vw_identity import hostname_hash_machine_id, local_machine_id
 
 CLOSED_LOG = """
 Opened "MyProject.vwx" at 6/1/2025 9:00:00 AM
@@ -68,7 +69,7 @@ def test_normalize_file_name_and_machine_id_from_path():
     assert normalize_file_name(r"C:\Projects\MyProject.vwx") == "myproject.vwx"
     sync_path = r"D:/Sync/machines/laptop-a/2025/Vectorworks Log.txt"
     assert machine_id_from_log_path(sync_path) == "laptop-a"
-    assert machine_id_from_log_path(r"C:\Nemetschek\2025\Vectorworks Log.txt") == "local"
+    assert machine_id_from_log_path(r"C:\Nemetschek\2025\Vectorworks Log.txt") == local_machine_id(2025)
 
 
 def test_merge_log_sessions_from_two_machines(tmp_path, aggregator: SessionAggregator):

@@ -9,8 +9,17 @@ from pathlib import Path
 from typing import Any
 
 APP_NAME = "VectorTrack"
-APP_VERSION = "0.5.4"
+APP_VERSION = "0.5.5"
 APP_BETA = True
+
+GITHUB_REPO_OWNER = "Paragonlivedesign"
+GITHUB_REPO_NAME = "VectorTrack"
+GITHUB_RELEASES_LATEST_API = (
+    f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest"
+)
+GITHUB_RELEASES_LATEST_URL = (
+    f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/releases/latest"
+)
 
 
 def format_version(*, include_product_name: bool = False) -> str:

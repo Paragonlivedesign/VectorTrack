@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterable
 
 from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
     QComboBox,
     QDateTimeEdit,
@@ -29,12 +30,15 @@ class HistoryBrowser(QWidget):
         filters = QHBoxLayout()
         self.project_filter = QComboBox()
         self.project_filter.addItem("All Projects", "")
+        now = datetime.now()
         self.from_filter = QDateTimeEdit()
         self.from_filter.setCalendarPopup(True)
-        self.from_filter.setDateTime(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0))
+        self.from_filter.setDateTime(
+            (now - timedelta(days=30)).replace(hour=0, minute=0, second=0, microsecond=0)
+        )
         self.to_filter = QDateTimeEdit()
         self.to_filter.setCalendarPopup(True)
-        self.to_filter.setDateTime(datetime.now())
+        self.to_filter.setDateTime(now.replace(hour=23, minute=59, second=59, microsecond=0))
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self.refresh_requested.emit)
         filters.addWidget(QLabel("Project"))
@@ -46,9 +50,9 @@ class HistoryBrowser(QWidget):
         filters.addWidget(refresh_btn)
         layout.addLayout(filters)
 
-        self.table = QTableWidget(0, 7, self)
+        self.table = QTableWidget(0, 9, self)
         self.table.setHorizontalHeaderLabels(
-            ["Start", "End", "Project", "File", "Hours", "Rate", "Amount"]
+            ["Start", "End", "Project", "File", "Machine", "Hours", "Rate", "Amount", "Status"]
         )
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -79,10 +83,18 @@ class HistoryBrowser(QWidget):
                 str(item.get("end", "")),
                 str(item.get("project", "")),
                 str(item.get("file", "")),
+                str(item.get("machine", "")),
                 f'{float(item.get("hours", 0.0)):.2f}',
                 f'${float(item.get("rate", 0.0)):.2f}',
                 f'${float(item.get("amount", 0.0)):.2f}',
+                str(item.get("status", "")),
             ]
+            status = str(item.get("status", ""))
             for col, value in enumerate(values):
-                self.table.setItem(row, col, QTableWidgetItem(value))
-
+                cell = QTableWidgetItem(value)
+                if status == "Excluded":
+                    cell.setBackground(QBrush(QColor("#e8e8e8")))
+                    cell.setForeground(QBrush(QColor("#777777")))
+                elif status == "Conflict":
+                    cell.setBackground(QBrush(QColor("#f6deb2")))
+                self.table.setItem(row, col, cell)

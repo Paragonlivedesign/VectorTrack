@@ -19,6 +19,9 @@ from vectortrack.process_monitor import ProcessMonitor
 from vectortrack.services.backup_service import BackupService
 from vectortrack.services.billing_service import BillingService
 from vectortrack.services.log_service import LogService
+from vectortrack.services.autostart import is_enabled as autostart_is_enabled
+from vectortrack.services.autostart import set_enabled as refresh_autostart
+from vectortrack.services.autostart import START_IN_TRAY_FLAG
 from vectortrack.services.tracking_service import TrackingService
 from vectortrack.single_instance import SingleInstanceGuard
 from vectortrack.ui import MainWindow, apply_theme
@@ -111,6 +114,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Store app data in ./data next to executable.",
     )
+    parser.add_argument(
+        "--start-in-tray",
+        action="store_true",
+        help="Start hidden in the system tray instead of opening the main window.",
+    )
     return parser.parse_args(argv)
 
 
@@ -152,7 +160,13 @@ def main(argv: list[str] | None = None) -> None:
             Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
         )
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(app_icon())
+    if autostart_is_enabled():
+        try:
+            refresh_autostart(True)
+        except OSError as exc:
+            logger.debug(f"Autostart registry refresh skipped: {exc}")
     instance_guard = SingleInstanceGuard()
     if not instance_guard.acquire():
         logger.info("Another VectorTrack instance is already running; raising existing window")
@@ -169,10 +183,15 @@ def main(argv: list[str] | None = None) -> None:
         QTimer.singleShot(0, window._ensure_window_on_screen)
 
     instance_guard.listen(_raise_existing_window)
-    window.showNormal()
-    window.raise_()
-    window.activateWindow()
-    QTimer.singleShot(0, window._ensure_window_on_screen)
+    start_in_tray = args.start_in_tray or START_IN_TRAY_FLAG in sys.argv
+    if start_in_tray:
+        logger.info("Starting in system tray")
+        window.hide()
+    else:
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
+        QTimer.singleShot(0, window._ensure_window_on_screen)
     exit_code = 0
     try:
         exit_code = app.exec()

@@ -12,6 +12,12 @@ LOG_FILENAME = 'Vectorworks Log.txt'
 YEAR_MIN = 2020
 YEAR_MAX = 2030
 
+VW_LOG_TIME_PREFERENCE_HELP = (
+    "In Vectorworks, open Preferences and select the Session tab. "
+    "Turn on \"Log time in program\". Vectorworks only creates Vectorworks Log.txt "
+    "after this option is enabled — it is usually off on a new install."
+)
+
 # Native Vectorworks log: "11/24/2025  6:38:53 PM \t Opened \"file.vwx\"."
 VW_EVENT_RE = re.compile(
     r'^(\d{1,2}/\d{1,2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\s+[AP]M)\s+'
@@ -142,10 +148,23 @@ def find_log_path(preferred_year: Optional[int] = None) -> Optional[str]:
     if not paths:
         return None
     if preferred_year is not None:
-        preferred = os.path.join(_roaming_root(), str(preferred_year), LOG_FILENAME)
+        preferred = expected_log_path_for_year(preferred_year)
         if os.path.isfile(preferred):
             return preferred
     return paths[0]
+
+
+def expected_log_path_for_year(year: int) -> str:
+    """Return where Vectorworks writes Log.txt for a given version year."""
+    return os.path.join(_roaming_root(), str(year), LOG_FILENAME)
+
+
+def expected_log_path_for_exe(vw_exe_path: str) -> Optional[str]:
+    """Return the expected Log.txt path for a Vectorworks executable, if year is known."""
+    year = extract_year_from_vw_exe(vw_exe_path)
+    if year is None:
+        return None
+    return expected_log_path_for_year(year)
 
 
 def resolve_log_paths(

@@ -15,12 +15,12 @@ from vectortrack.log_parser import (
     read_log_content,
 )
 from vectortrack.services.alias_resolver import AliasResolver
+from vectortrack.services.vw_identity import local_machine_id, vw_year_from_log_path
 
 if TYPE_CHECKING:
     from vectortrack.db.repository import Repository
 
 MACHINES_DIR = "machines"
-LOCAL_MACHINE_ID = "local"
 
 
 @dataclass
@@ -77,7 +77,7 @@ def machine_id_from_log_path(log_path: str) -> str:
         index = parts.index(MACHINES_DIR)
         if index + 1 < len(parts):
             return parts[index + 1]
-    return LOCAL_MACHINE_ID
+    return local_machine_id(vw_year_from_log_path(log_path))
 
 
 def make_log_key(
@@ -91,7 +91,7 @@ def make_log_key(
             start.isoformat(),
             end.isoformat(),
             normalize_file_name(file_alias),
-            machine_id or LOCAL_MACHINE_ID,
+            machine_id or local_machine_id(),
         ]
     )
 
@@ -354,7 +354,7 @@ class SessionAggregator:
                     start=row.start_time,
                     end=end_time,
                     hours=hours,
-                    machine_id=row.machine_id or LOCAL_MACHINE_ID,
+                    machine_id=row.machine_id or local_machine_id(),
                     source=source,
                     file_path=row.file_path,
                     file_alias=row.file_alias or Path(row.file_path).name,
@@ -384,7 +384,7 @@ class SessionAggregator:
                     start=start,
                     end=end,
                     hours=hours,
-                    machine_id=str(row.get("machine_id") or LOCAL_MACHINE_ID),
+                    machine_id=str(row.get("machine_id") or local_machine_id()),
                     source="adjustment",
                     file_path=str(row["file_path"]),
                     file_alias=Path(str(row["file_path"])).name,

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from vectortrack.log_parser import VW_LOG_TIME_PREFERENCE_HELP
 from vectortrack.db.repository import Repository
 
 
@@ -45,7 +46,8 @@ class LogLibraryDialog(QDialog):
             QLabel(
                 "VectorTrack reads Vectorworks Log.txt for imported session history. "
                 "Logs below are linked automatically from your Vectorworks install. "
-                "Add extra log files only if you use a custom location or another machine's copy."
+                "Add extra log files only if you use a custom location or another machine's copy.\n\n"
+                f"{VW_LOG_TIME_PREFERENCE_HELP}"
             )
         )
         if self.linked_log_description:
@@ -99,7 +101,9 @@ class LogLibraryDialog(QDialog):
     def _refresh_linked(self) -> None:
         self.linked_list.clear()
         if not self.linked_log_paths:
-            item = QListWidgetItem("(No Vectorworks logs found — link Vectorworks via File menu first)")
+            item = QListWidgetItem(
+                "(No Vectorworks logs found — link Vectorworks via File menu, or add a log file below)"
+            )
             item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.linked_list.addItem(item)
             return

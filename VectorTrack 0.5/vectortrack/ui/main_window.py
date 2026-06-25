@@ -38,7 +38,7 @@ from vectortrack.services.backup_service import BackupService
 from vectortrack.services.billing_service import BillingContext, BillingService
 from vectortrack.services.import_export import ImportExportService
 from vectortrack.services.log_service import LogService
-from vectortrack.services.report_data import ReportDataBuilder
+from vectortrack.services.report_data import ReportDataBuilder, ReportFilter
 from vectortrack.services.report_service import ReportService
 from vectortrack.services.autostart import set_enabled as set_autostart_enabled
 from vectortrack.services.hotkey_service import HotkeyService
@@ -64,6 +64,8 @@ from vectortrack.ui.dialogs.donate_dialog import DonateDialog
 from vectortrack.ui.dialogs.first_run_wizard import FirstRunWizard
 from vectortrack.ui.dialogs.import_bundle_dialog import ImportBundleDialog
 from vectortrack.ui.dialogs.log_library_dialog import LogLibraryDialog
+from vectortrack.log_parser import expected_log_path_for_exe, vectorworks_log_roaming_dir
+from vectortrack.ui.dialogs.vectorworks_log_setup_dialog import VectorworksLogSetupDialog
 from vectortrack.ui.dialogs.vectorworks_setup_dialog import VectorworksSetupDialog
 from vectortrack.ui.dialogs.manual_entry_dialog import ManualEntryDialog
 from vectortrack.ui.dialogs.project_assign_dialog import ProjectAssignDialog
@@ -72,10 +74,26 @@ from vectortrack.ui.dialogs.new_project_dialog import NewProjectDialog
 from vectortrack.ui.dialogs.rate_edit_dialog import RateEditDialog
 from vectortrack.ui.dialogs.report_dialog import ReportDialog
 from vectortrack.ui.dialogs.settings_dialog import SettingsDialog
+from vectortrack.ui.dialogs.update_check_dialog import UpdateCheckDialog
 from vectortrack.services.session_aggregator import SessionAggregator
+from vectortrack.services.vw_identity import (
+    clear_vw_identity_cache,
+    resolve_sync_machine_id,
+    resolve_sync_machine_label,
+    resolve_vw_identity,
+)
 from vectortrack.ui.dialogs.session_explorer_dialog import SessionExplorerDialog
 from vectortrack.sync_config import SyncConfig, default_machine_id, load_sync_config_from_paths_json, settings_keys_from_sync_config, sync_config_to_mapping
-from vectortrack.sync_folder import gather_sync_log_paths
+from vectortrack.sync_folder import (
+    gather_sync_log_paths,
+    load_sync_machine_labels,
+    merge_remote_assignments,
+    push_assignments_snapshot,
+    push_log_snapshot,
+    resolve_machine_display,
+    resolve_sync_folder,
+    snapshot_dir,
+)
 
 
 class MainWindow(QMainWindow):
@@ -133,8 +151,13 @@ class MainWindow(QMainWindow):
         self.session_aggregator = SessionAggregator(self.repository)
         self.log_cache: dict[str, dict[str, float | datetime]] = {}
         self.file_project_overrides: dict[str, str] = self._load_project_overrides()
-        self._sync_orphan_project_assignments()
+        self.merged_assignments: dict[str, str] = {}
+        self._assignments_dirty = False
+        self._machine_label_cache: dict[str, str] = {}
+        self._refresh_merged_assignments()
         self._last_log_sync = datetime.min
+        self._last_sync_push = datetime.min
+        self._last_sync_push_error = ""
         self._last_rows: list[dict[str, object]] = []
         self._is_quitting = False
         self._known_open_files: set[str] = set()
@@ -201,6 +224,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(200, self._show_vectorworks_setup_prompts)
         QTimer.singleShot(0, self._tick)
         QTimer.singleShot(150, self._refresh_history)
+        QTimer.singleShot(500, lambda: self._maybe_push_log_sync(force=True))
 
     def _apply_idle_settings(self) -> None:
         self.tracking_service.set_idle_pause_enabled(self.idle_pause_enabled)
@@ -219,6 +243,28 @@ class MainWindow(QMainWindow):
         if state is not None and self.tracking_service.is_idle_blocked(state.file_path):
             return "idle"
         return "tracking"
+
+    def _tray_status(self, rows: list[dict[str, object]] | None = None) -> str:
+        current = self.tracking_service.current_state
+        if current is None:
+            return "inactive"
+        tracking_status = self._tracking_status_for_state(current)
+        if tracking_status != "tracking":
+            return tracking_status
+        source_rows = rows if rows is not None else self._last_rows
+        row = next((item for item in source_rows if item.get("file_path") == current.file_path), None)
+        row_kind = str(row.get("row_kind", "active")) if row else "active"
+        if self._is_live_tracking(current.file_path, row_kind):
+            return "tracking"
+        return "paused"
+
+    def _update_tray_status(self, rows: list[dict[str, object]] | None = None) -> None:
+        status = self._tray_status(rows)
+        self.tray.set_tracking_status(status)  # type: ignore[attr-defined]
+        self.tray.set_paused(self.tracking_service.is_paused)  # type: ignore[attr-defined]
+
+    def _toggle_pause_from_tray(self) -> None:
+        self.pause_action.setChecked(not self.pause_action.isChecked())
 
     @classmethod
     def create_default(cls) -> "MainWindow":
@@ -368,6 +414,7 @@ class MainWindow(QMainWindow):
         help_menu.addAction("Report a Bug...", self._show_bug_report_dialog)
         help_menu.addAction("Contact Support", self._contact_support)
         help_menu.addSeparator()
+        help_menu.addAction("Check for Updates...", self._check_for_updates)
         help_menu.addAction("About", self._show_about)
         help_menu.addAction("Donate", self._show_donate)
 
@@ -402,15 +449,25 @@ class MainWindow(QMainWindow):
         self._apply_saved_theme()
 
     def _load_sync_config(self) -> SyncConfig:
+        vw_year = self._current_vw_year()
         if self.settings.contains("sync_enabled"):
+            stored_id = str(self.settings.value("sync_machine_id", default_machine_id(), type=str))
+            stored_label = str(self.settings.value("sync_machine_label", "", type=str))
             return SyncConfig(
                 enabled=self.settings.value("sync_enabled", False, type=bool),
                 folder=self.settings.value("sync_folder", "", type=str),
-                machine_id=self.settings.value("sync_machine_id", default_machine_id(), type=str),
-                machine_label=self.settings.value("sync_machine_label", "", type=str),
+                machine_id=resolve_sync_machine_id(stored_id, vw_year),
+                machine_label=resolve_sync_machine_label(stored_label, vw_year),
                 sync_on_refresh=self.settings.value("sync_on_refresh", True, type=bool),
             )
-        return load_sync_config_from_paths_json(config.paths_json_path())
+        loaded = load_sync_config_from_paths_json(config.paths_json_path())
+        return SyncConfig(
+            enabled=loaded.enabled,
+            folder=loaded.folder,
+            machine_id=resolve_sync_machine_id(loaded.machine_id, vw_year),
+            machine_label=resolve_sync_machine_label(loaded.machine_label, vw_year),
+            sync_on_refresh=loaded.sync_on_refresh,
+        )
 
     def _write_paths_manifest(self) -> None:
         try:
@@ -464,9 +521,11 @@ class MainWindow(QMainWindow):
                 try:
                     self.process_monitor.set_vectorworks_path(dialog.selected_path)
                     self.settings.setValue("vectorworks_path", dialog.selected_path)
+                    self.settings.setValue("vw_exe_prompt_skipped", False)
                     self.settings.setValue("vw_auto_detect_notified", True)
                     self._write_paths_manifest()
                     self._tick()
+                    self._show_log_setup_prompt_if_needed()
                 except Exception as exc:
                     QMessageBox.warning(self, "Vectorworks path error", str(exc))
             else:
@@ -476,6 +535,8 @@ class MainWindow(QMainWindow):
                     15000,
                 )
             return
+
+        self._show_log_setup_prompt_if_needed()
 
         if (
             self._vw_detect_mode == "auto"
@@ -488,6 +549,45 @@ class MainWindow(QMainWindow):
                 f"Using {version_label} at {exe_path}. Change via File → Select Vectorworks EXE…",
             )
             self.settings.setValue("vw_auto_detect_notified", True)
+
+    def _show_log_setup_prompt_if_needed(self) -> None:
+        if not self.import_vw_log_history:
+            return
+        if not self.process_monitor.vectorworks_path:
+            return
+        if self._local_log_paths():
+            self.settings.setValue("vw_log_setup_notified", True)
+            return
+        if self.settings.value("vw_log_prompt_skipped", False, type=bool):
+            self.statusBar().showMessage(
+                "Vectorworks Log.txt not found — use Edit → Log Library… or enable "
+                "Log time in program under Vectorworks Preferences → Session.",
+                15000,
+            )
+            return
+
+        exe_path = self.process_monitor.vectorworks_path or ""
+        expected = expected_log_path_for_exe(exe_path) or ""
+        dialog = VectorworksLogSetupDialog(
+            expected_log_path=expected,
+            browse_directory=vectorworks_log_roaming_dir(),
+            parent=self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_path:
+            self.vw_log_path = dialog.selected_path
+            self.settings.setValue("vw_log_path", dialog.selected_path)
+            self.settings.setValue("vw_log_prompt_skipped", False)
+            self.settings.setValue("vw_log_setup_notified", True)
+            self._write_paths_manifest()
+            self._tick()
+            return
+
+        self.settings.setValue("vw_log_prompt_skipped", True)
+        self.statusBar().showMessage(
+            "Vectorworks Log.txt not found — enable Log time in program under "
+            "Vectorworks Preferences → Session, then use Edit → Log Library…",
+            15000,
+        )
 
     def _select_vectorworks_exe(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -505,6 +605,7 @@ class MainWindow(QMainWindow):
             self.settings.setValue("vw_auto_detect_notified", True)
             self._write_paths_manifest()
             self._tick()
+            self._show_log_setup_prompt_if_needed()
         except Exception as exc:
             QMessageBox.warning(self, "Vectorworks path error", str(exc))
 
@@ -520,6 +621,128 @@ class MainWindow(QMainWindow):
 
     def _save_project_overrides(self) -> None:
         self.settings.setValue("file_project_overrides", json.dumps(self.file_project_overrides))
+        self._assignments_dirty = True
+
+    def _refresh_merged_assignments(self) -> None:
+        sync_folder = resolve_sync_folder(self.sync_config)
+        vw_year = self._current_vw_year()
+        if sync_folder and self.sync_config.enabled:
+            self.merged_assignments = merge_remote_assignments(
+                sync_folder,
+                vw_year,
+                self.file_project_overrides,
+                local_machine_id=self.sync_config.machine_id,
+            )
+            self._machine_label_cache = load_sync_machine_labels(sync_folder, vw_year)
+        else:
+            self.merged_assignments = {
+                os.path.basename(str(path).replace("\\", "/")): str(code).strip()
+                for path, code in self.file_project_overrides.items()
+                if path and code
+            }
+            self._machine_label_cache = {}
+        self._sync_orphan_project_assignments()
+
+    def _effective_assigned_files(self) -> dict[str, str]:
+        assigned = dict(self.merged_assignments)
+        for file_path, code in self.file_project_overrides.items():
+            if file_path and code:
+                assigned[os.path.basename(str(file_path).replace("\\", "/"))] = str(code).strip()
+        return assigned
+
+    def _maybe_push_assignments(self, *, force: bool = False) -> None:
+        if not self.sync_config.enabled or not self.sync_config.folder.strip():
+            return
+        if not force and not self._assignments_dirty:
+            return
+        ok, _err = push_assignments_snapshot(
+            self.file_project_overrides,
+            self.sync_config,
+            self._current_vw_year(),
+        )
+        if ok:
+            self._assignments_dirty = False
+
+    def _machine_display(self, machine_id: str) -> str:
+        sync_folder = resolve_sync_folder(self.sync_config)
+        return resolve_machine_display(
+            machine_id,
+            sync_folder=sync_folder,
+            vw_year=self._current_vw_year(),
+            local_config=self.sync_config,
+            label_cache=self._machine_label_cache,
+        )
+
+    def _history_rows_from_db(self, selected_project: str, start_limit: datetime, end_limit: datetime) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        sessions = self.repository.list_sessions(project_id=selected_project or None, include_open=True, limit=5000)
+        for session in sessions:
+            if session.start_time < start_limit or session.start_time > end_limit:
+                continue
+            file_label = self._session_file_label(session)
+            project_label = session.project_id
+            if self.repository.is_project_locked(session.project_id):
+                project_label = f"{project_label} [LOCKED]"
+            rows.append(
+                {
+                    "start": session.start_time.strftime("%Y-%m-%d %H:%M"),
+                    "end": session.end_time.strftime("%Y-%m-%d %H:%M") if session.end_time else "Open",
+                    "project": project_label,
+                    "file": file_label,
+                    "machine": self._machine_display(session.machine_id or ""),
+                    "hours": session.active_duration.total_seconds() / 3600.0,
+                    "rate": session.hourly_rate,
+                    "amount": session.billable_amount,
+                    "status": "Open" if session.end_time is None else "Closed",
+                }
+            )
+        return rows
+
+    def _merged_report_rows(
+        self,
+        *,
+        start_limit: datetime,
+        end_limit: datetime,
+        project_code: str = "",
+    ):
+        dataset = self._report_data_builder().build(
+            ReportFilter(
+                from_dt=start_limit,
+                to_dt=end_limit,
+                project_code=project_code,
+            )
+        )
+        return sorted(dataset.rows, key=lambda row: row.start, reverse=True)
+
+    def _history_rows_from_merged(
+        self,
+        selected_project: str,
+        start_limit: datetime,
+        end_limit: datetime,
+    ) -> list[dict[str, object]]:
+        rows: list[dict[str, object]] = []
+        for report_row in self._merged_report_rows(
+            start_limit=start_limit,
+            end_limit=end_limit,
+            project_code=selected_project,
+        ):
+            project_label = report_row.project_label or report_row.project_code
+            if report_row.is_locked:
+                project_label = f"{project_label} [LOCKED]"
+            rows.append(
+                {
+                    "start": report_row.start.strftime("%Y-%m-%d %H:%M"),
+                    "end": report_row.end.strftime("%Y-%m-%d %H:%M") if report_row.end else "Open",
+                    "project": project_label,
+                    "file": report_row.file,
+                    "machine": self._machine_display(report_row.machine_id),
+                    "hours": report_row.raw_hours,
+                    "rate": report_row.rate,
+                    "amount": report_row.raw_amount,
+                    "status": report_row.status,
+                }
+            )
+        return rows
 
     def _cleanup_stale_project_overrides(self) -> None:
         stale_paths = [
@@ -555,7 +778,7 @@ class MainWindow(QMainWindow):
                 5000,
             )
 
-    def _active_log_paths(self) -> list[str]:
+    def _local_log_paths(self) -> list[str]:
         extra_paths = [
             str(source.get("source", "")).strip()
             for source in self.repository.list_log_sources()
@@ -567,7 +790,47 @@ class MainWindow(QMainWindow):
             merge_other_years=self.vw_log_merge_years,
             extra_paths=extra_paths,
         )
+        return paths
+
+    def _maybe_push_log_sync(self, *, force: bool = False) -> bool:
+        """Push local Vectorworks Log.txt to the cross-machine sync folder."""
+        if not self.sync_config.enabled or not self.sync_config.sync_on_refresh:
+            return False
+        if not self.sync_config.folder.strip():
+            self._last_sync_push_error = "Sync folder is not set"
+            return False
+        if not force and (datetime.now() - self._last_sync_push).total_seconds() < 60:
+            return False
+
+        paths = self._local_log_paths()
+        if not paths:
+            self._last_sync_push_error = "Vectorworks Log.txt not found on this machine"
+            return False
+
+        ok, err = push_log_snapshot(
+            paths[0],
+            self.sync_config,
+            self._current_vw_year(),
+        )
+        if ok:
+            self._last_sync_push = datetime.now()
+            self._last_sync_push_error = ""
+            dest = snapshot_dir(
+                self.sync_config.folder.strip(),
+                self.sync_config.machine_id,
+                self._current_vw_year(),
+            )
+            self.statusBar().showMessage(f"Log sync updated: {dest}", 4000)
+            return True
+
+        self._last_sync_push_error = err or "Unknown sync error"
+        self.statusBar().showMessage(f"Log sync failed: {self._last_sync_push_error}", 8000)
+        return False
+
+    def _active_log_paths(self) -> list[str]:
+        paths = self._local_log_paths()
         if self.sync_config.enabled and paths:
+            self._maybe_push_log_sync()
             paths, _machine_count = gather_sync_log_paths(
                 paths,
                 self.sync_config,
@@ -598,6 +861,10 @@ class MainWindow(QMainWindow):
         override = self.file_project_overrides.get(file_path)
         if override:
             return override
+        basename = os.path.basename(str(file_path).replace("\\", "/"))
+        merged = self.merged_assignments.get(basename, "")
+        if merged:
+            return merged
         if state is not None and state.project_id:
             if self.repository.get_project_by_code(state.project_id):
                 return state.project_id
@@ -866,30 +1133,65 @@ class MainWindow(QMainWindow):
         rows = self._rows_from_tracking()
         self._last_rows = rows
         self.open_files_table.update_rows(rows)
-        self._refresh_project_summary(rows)
+        self._refresh_project_summary()
         self._refresh_dash_metrics(rows)
         self._refresh_hud(rows)
+        self._update_tray_status(rows)
         self._check_workflow_notifications(rows)
         if (datetime.now() - self._last_log_sync) > timedelta(seconds=60):
             self._last_log_sync = datetime.now()
             self._refresh_history()
+        self._maybe_push_log_sync()
 
-    def _refresh_project_summary(self, rows: list[dict[str, object]]) -> None:
-        per_project: dict[str, dict[str, float]] = {}
-        for row in rows:
-            project = str(row.get("project_code") or row.get("project") or "")
-            if not project or project == self.UNASSIGNED_PROJECT_LABEL:
-                continue
-            agg = per_project.setdefault(
-                project,
-                {
+    def _refresh_project_summary(self) -> None:
+        if self.import_vw_log_history:
+            start = datetime(1970, 1, 1)
+            end = datetime(9999, 12, 31, 23, 59, 59)
+            per_project: dict[str, dict[str, float]] = {}
+            for project in self.repository.list_projects():
+                per_project[project.project_code] = {
                     "tracked_hours": 0.0,
                     "billable": 0.0,
-                    "rate": float(row["rate"]),
-                },
-            )
-            agg["tracked_hours"] += float(row["past_hours"]) + float(row["live_hours"])
-            agg["billable"] += float(row["earned"])
+                    "rate": float(project.hourly_rate),
+                }
+            for report_row in self._merged_report_rows(start_limit=start, end_limit=end):
+                if report_row.excluded:
+                    continue
+                code = report_row.project_code
+                if not code:
+                    continue
+                agg = per_project.setdefault(
+                    code,
+                    {
+                        "tracked_hours": 0.0,
+                        "billable": 0.0,
+                        "rate": float(report_row.rate),
+                    },
+                )
+                agg["tracked_hours"] += report_row.raw_hours
+                agg["billable"] += report_row.raw_amount
+        else:
+            per_project = {}
+            for project in self.repository.list_projects():
+                per_project[project.project_code] = {
+                    "tracked_hours": 0.0,
+                    "billable": 0.0,
+                    "rate": float(project.hourly_rate),
+                }
+            for session in self.repository.list_sessions(include_open=True, limit=15000):
+                project = session.project_id
+                if not project:
+                    continue
+                agg = per_project.setdefault(
+                    project,
+                    {
+                        "tracked_hours": 0.0,
+                        "billable": 0.0,
+                        "rate": float(session.hourly_rate),
+                    },
+                )
+                agg["tracked_hours"] += session.active_duration.total_seconds() / 3600.0
+                agg["billable"] += session.billable_amount
         self.project_summary_table.set_rows(
             [
                 {
@@ -959,40 +1261,36 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_history(self) -> None:
+        self._maybe_push_assignments()
+        self._refresh_merged_assignments()
         selected_project = self.history_browser.selected_project()
-        sessions = self.repository.list_sessions(project_id=selected_project or None, include_open=True, limit=5000)
         start_limit = self.history_browser.from_filter.dateTime().toPyDateTime()
         end_limit = self.history_browser.to_filter.dateTime().toPyDateTime()
-        rows = []
-        for session in sessions:
-            if session.start_time < start_limit or session.start_time > end_limit:
-                continue
-            file_label = self._session_file_label(session)
-            project_label = session.project_id
-            if self.repository.is_project_locked(session.project_id):
-                project_label = f"{project_label} [LOCKED]"
-            rows.append(
-                {
-                    "start": session.start_time.strftime("%Y-%m-%d %H:%M"),
-                    "end": session.end_time.strftime("%Y-%m-%d %H:%M") if session.end_time else "Open",
-                    "project": project_label,
-                    "file": file_label,
-                    "hours": session.active_duration.total_seconds() / 3600.0,
-                    "rate": session.hourly_rate,
-                    "amount": session.billable_amount,
-                }
-            )
+        if self.import_vw_log_history:
+            rows = self._history_rows_from_merged(selected_project, start_limit, end_limit)
+        else:
+            rows = self._history_rows_from_db(selected_project, start_limit, end_limit)
         self.history_browser.set_rows(rows)
         self.history_browser.set_project_options([project.project_code for project in self.repository.list_projects()])
         self._refresh_heatmap()
+        self._refresh_project_summary()
         self.clients_tab.refresh()
 
     def _refresh_heatmap(self) -> None:
-        sessions = self.repository.list_sessions(include_open=True, limit=15000)
         totals: dict[date, float] = {}
-        for session in sessions:
-            day = session.start_time.date()
-            totals[day] = totals.get(day, 0.0) + (session.active_duration.total_seconds() / 3600.0)
+        if self.import_vw_log_history:
+            start = datetime(1970, 1, 1)
+            end = datetime(9999, 12, 31, 23, 59, 59)
+            for report_row in self._merged_report_rows(start_limit=start, end_limit=end):
+                if report_row.excluded:
+                    continue
+                day = report_row.start.date()
+                totals[day] = totals.get(day, 0.0) + report_row.raw_hours
+        else:
+            sessions = self.repository.list_sessions(include_open=True, limit=15000)
+            for session in sessions:
+                day = session.start_time.date()
+                totals[day] = totals.get(day, 0.0) + (session.active_duration.total_seconds() / 3600.0)
         self.heatmap_widget.set_day_values(totals)
 
     def _jump_history_to_day(self, selected_day: date) -> None:
@@ -1052,6 +1350,8 @@ class MainWindow(QMainWindow):
                     state.last_tick_at = now
                 self.repository.update_session_duration(state, 0.0)
         self._save_project_overrides()
+        self._refresh_merged_assignments()
+        self._maybe_push_assignments(force=True)
         self._sync_orphan_project_assignments()
         self._tick()
 
@@ -1165,10 +1465,15 @@ class MainWindow(QMainWindow):
         self.sync_config = SyncConfig(
             enabled=bool(values.get("sync_enabled", False)),
             folder=str(values.get("sync_folder", "")),
-            machine_id=str(values.get("sync_machine_id", "")),
-            machine_label=str(values.get("sync_machine_label", "")),
+            machine_id=resolve_sync_machine_id(str(values.get("sync_machine_id", "")), self._current_vw_year()),
+            machine_label=resolve_sync_machine_label(
+                str(values.get("sync_machine_label", "")),
+                self._current_vw_year(),
+            ),
             sync_on_refresh=bool(values.get("sync_on_refresh", True)),
         )
+        clear_vw_identity_cache()
+        self._refresh_merged_assignments()
         for key, value in settings_keys_from_sync_config(self.sync_config).items():
             self.settings.setValue(key, value)
         self.log_cache.clear()
@@ -1186,6 +1491,37 @@ class MainWindow(QMainWindow):
         self._apply_idle_settings()
         self._apply_saved_theme()
         self._write_paths_manifest()
+        if self.sync_config.enabled:
+            if not self.sync_config.folder.strip():
+                QMessageBox.warning(
+                    self,
+                    "Log sync",
+                    "Cross-machine log sync is enabled but no sync folder is set.",
+                )
+            elif not self._maybe_push_log_sync(force=True):
+                detail = self._last_sync_push_error or "Check that Vectorworks Log.txt is linked."
+                dest = snapshot_dir(
+                    self.sync_config.folder.strip(),
+                    self.sync_config.machine_id,
+                    self._current_vw_year(),
+                )
+                QMessageBox.warning(
+                    self,
+                    "Log sync",
+                    f"Could not write log snapshot.\n\n{detail}\n\nExpected folder:\n{dest}",
+                )
+            else:
+                dest = snapshot_dir(
+                    self.sync_config.folder.strip(),
+                    self.sync_config.machine_id,
+                    self._current_vw_year(),
+                )
+                QMessageBox.information(
+                    self,
+                    "Log sync",
+                    f"Log snapshot saved.\n\n{dest}",
+                )
+            self._maybe_push_assignments(force=True)
         self._tick()
 
     def _show_project_editor(self, project_code: str | None = None) -> None:
@@ -1236,6 +1572,9 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         AboutDialog(self).exec()
 
+    def _check_for_updates(self) -> None:
+        UpdateCheckDialog(self).exec()
+
     def _show_donate(self) -> None:
         DonateDialog(self).exec()
 
@@ -1251,7 +1590,7 @@ class MainWindow(QMainWindow):
             billing_service=self.billing_service,
             log_service=self.log_service,
             log_paths=self._active_log_paths(),
-            assigned_files=self.file_project_overrides,
+            assigned_files=self._effective_assigned_files(),
         )
 
     def _generate_client_statement(self, client_id: int) -> None:
@@ -1293,7 +1632,7 @@ class MainWindow(QMainWindow):
             session_aggregator=self.session_aggregator,
             log_service=self.log_service,
             log_paths=self._active_log_paths(),
-            assigned_files=self.file_project_overrides,
+            assigned_files=self._effective_assigned_files(),
             initial_report_type=report_type,
             initial_project_code=project_code,
             initial_client_id=client_id,
@@ -1312,6 +1651,8 @@ class MainWindow(QMainWindow):
         self.pause_action.setChecked(paused)
         self.pause_action.blockSignals(False)
         self.pause_action.setText("Resume Tracking" if paused else "Pause Tracking")
+        self.tray.set_paused(paused)  # type: ignore[attr-defined]
+        self._update_tray_status()
 
     def _clear_tracking_blocks(self) -> None:
         self.activity_monitor.bump_activity()
@@ -1379,6 +1720,7 @@ class MainWindow(QMainWindow):
             reload_callback=reload,
             report_service=self.report_service,
             data_builder=self._report_data_builder(),
+            machine_display=self._machine_display,
             parent=self,
         )
         dialog.exec()
@@ -1394,7 +1736,7 @@ class MainWindow(QMainWindow):
             return self.session_aggregator.sessions_for_project(
                 project_code=project_code,
                 log_paths=log_paths,
-                assigned_files=self.file_project_overrides,
+                assigned_files=self._effective_assigned_files(),
             )
 
         dialog = SessionExplorerDialog(
@@ -1406,6 +1748,7 @@ class MainWindow(QMainWindow):
             reload_callback=reload,
             report_service=self.report_service,
             data_builder=self._report_data_builder(),
+            machine_display=self._machine_display,
             parent=self,
         )
         dialog.exec()
@@ -1478,6 +1821,8 @@ class MainWindow(QMainWindow):
         self._ensure_window_on_screen()
 
     def _ensure_window_on_screen(self) -> None:
+        if not self.isVisible():
+            return
         if self.isMinimized():
             self.showNormal()
         frame = self.frameGeometry()

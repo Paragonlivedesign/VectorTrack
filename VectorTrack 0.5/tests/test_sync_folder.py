@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from vectortrack.log_parser import LOG_FILENAME
-from vectortrack.sync_config import SyncConfig, sync_config_to_mapping
+from vectortrack.sync_config import SyncConfig, sync_config_from_mapping, sync_config_to_mapping
 from vectortrack.sync_folder import gather_sync_log_paths, push_log_snapshot
 
 
@@ -16,9 +16,9 @@ def test_sync_config_mapping_roundtrip():
         machine_id="office-desktop",
         machine_label="Office Desktop",
     )
-    restored = SyncConfig(**sync_config_to_mapping(config))
+    restored = sync_config_from_mapping(sync_config_to_mapping(config))
     assert restored.enabled is True
-    assert restored.folder == config.folder
+    assert Path(restored.folder) == Path(config.folder)
     assert restored.machine_id == config.machine_id
 
 

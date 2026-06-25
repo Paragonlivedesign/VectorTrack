@@ -7,12 +7,20 @@ from pathlib import Path
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "VectorTrack"
+START_IN_TRAY_FLAG = "--start-in-tray"
 
 
 def _executable_path() -> str:
     if getattr(sys, "frozen", False):
         return str(Path(sys.executable).resolve())
     return str((Path(__file__).resolve().parents[2] / "run.py").resolve())
+
+
+def startup_command(exe_path: str | None = None) -> str:
+    target = exe_path or _executable_path()
+    if target.endswith(".py"):
+        return f'"{sys.executable}" "{target}" {START_IN_TRAY_FLAG}'
+    return f'"{target}" {START_IN_TRAY_FLAG}'
 
 
 def is_enabled() -> bool:
@@ -38,12 +46,7 @@ def set_enabled(enabled: bool, exe_path: str | None = None) -> None:
 
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
         if enabled:
-            target = exe_path or _executable_path()
-            if target.endswith(".py"):
-                command = f'"{sys.executable}" "{target}"'
-            else:
-                command = f'"{target}"'
-            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, command)
+            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, startup_command(exe_path))
             return
         try:
             winreg.DeleteValue(key, APP_NAME)

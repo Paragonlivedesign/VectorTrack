@@ -5,6 +5,8 @@ from datetime import datetime
 import pytest
 
 from vectortrack.log_parser import (
+    expected_log_path_for_exe,
+    expected_log_path_for_year,
     get_balance_delta,
     get_log_reconciliation,
     get_total_log_hours_for_file,
@@ -81,6 +83,15 @@ def test_parse_sessions_native_vectorworks_format():
 def test_extract_year_from_vw_exe():
     assert extract_year_from_vw_exe(r"C:\Program Files\Vectorworks2026\Vectorworks2026.exe") == 2026
     assert extract_year_from_vw_exe(r"D:\Apps\2025\Vectorworks.exe") == 2025
+
+
+def test_expected_log_path_for_exe(tmp_path, monkeypatch):
+    vw_root = tmp_path / "Nemetschek" / "Vectorworks"
+    monkeypatch.setattr("vectortrack.log_parser._roaming_root", lambda: str(vw_root))
+    assert expected_log_path_for_year(2026) == str(vw_root / "2026" / "Vectorworks Log.txt")
+    assert expected_log_path_for_exe(r"C:\Vectorworks2026\Vectorworks2026.exe") == str(
+        vw_root / "2026" / "Vectorworks Log.txt"
+    )
 
 
 def test_resolve_log_paths_auto_from_exe(tmp_path, monkeypatch):

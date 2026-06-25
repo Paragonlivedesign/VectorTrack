@@ -5,6 +5,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QSettings
 
 from vectortrack.config import DEFAULT_IDLE_PAUSE_ENABLED, IDLE_TIMEOUT_HELPER_TEXT, format_version
+from vectortrack.log_parser import VW_LOG_TIME_PREFERENCE_HELP
 from PyQt6.QtWidgets import (
     QCheckBox,
     QLabel,
@@ -50,12 +51,20 @@ class FirstRunWizard(QWizard):
                 "Welcome",
                 f"Welcome to {format_version(include_product_name=True)}.\n\n"
                 "VectorTrack will try to find Vectorworks automatically. If it cannot, "
-                "you will be prompted to select Vectorworks.exe. Historical hours are read "
-                "from Vectorworks Log.txt in your AppData folder.",
+                "you will be prompted to select Vectorworks.exe.\n\n"
+                f"{VW_LOG_TIME_PREFERENCE_HELP}\n\n"
+                "Historical hours are read from Vectorworks Log.txt in your AppData folder.",
             )
         )
         self.addPage(self._checkbox_page("Tracking", "Choose how tracking should run.", self.auto_track_check))
-        self.addPage(self._checkbox_page("Log Imports", "Configure historical log import behavior.", self.import_logs_check))
+        self.addPage(
+            self._checkbox_page(
+                "Log Imports",
+                "Configure historical log import behavior.\n\n"
+                f"{VW_LOG_TIME_PREFERENCE_HELP}",
+                self.import_logs_check,
+            )
+        )
         self.addPage(self._checkbox_page("Merge Years", "Include previous years when scanning logs.", self.merge_years_check))
         self.addPage(self._checkbox_page("Tray Behavior", "Choose close behavior.", self.minimize_tray_check))
         self.addPage(self._appearance_page())

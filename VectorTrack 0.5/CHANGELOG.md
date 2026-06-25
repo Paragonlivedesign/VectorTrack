@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.5.5-beta] — 2026-06
+
+### VectorTrack (desktop)
+
+- **Check for Updates** — Help → Check for Updates compares against GitHub Releases and opens the installer download
+- **Tray icon states** — inactive, tracking, paused, and idle; Pause Tracking in tray menu
+- **Vectorworks machine identity** — sync Machine ID derived from VW `machine_uuid.txt` / license when available (replaces hostname hash)
+- **Cross-machine sync** — push log snapshots and file→project assignments to the shared sync folder; merge remote assignments (last-write-wins)
+- **Merged history** — History tab shows Machine and Status columns; excluded/conflict rows highlighted; default range last 30 days
+- **Reports** — include time from synced remote machine logs when sync is enabled
+- **Log Library / setup** — prompt when Vectorworks Log.txt is missing; link to VW Session logging preference
+- **Autostart** — improved Windows startup registration
+- Installer artifact: `VectorTrack-0.5.5-Setup.exe`
+
+### VectorTrackScript (plug-in)
+
+- Version aligned to **0.5.5 beta**
+
+---
+
 ## [0.5.4-beta] — 2026-06
 
 ### VectorTrack (desktop)

@@ -29,6 +29,11 @@ from vectortrack.config import (
     IDLE_TIMEOUT_HELPER_TEXT,
 )
 from vectortrack.services.autostart import is_enabled as autostart_is_enabled
+from vectortrack.services.vw_identity import (
+    resolve_sync_machine_id,
+    resolve_sync_machine_label,
+    resolve_vw_identity,
+)
 from vectortrack.sync_config import default_machine_id
 
 
@@ -117,10 +122,29 @@ class SettingsDialog(QDialog):
         sync_row_layout.addWidget(browse_btn)
         form.addRow("Sync folder", sync_row)
 
-        self.machine_id = QLineEdit(settings.value("sync_machine_id", default_machine_id(), type=str))
+        self.vw_identity = resolve_vw_identity(refresh=True)
+        identity_text = (
+            f"License: {self.vw_identity.license_id or 'unknown'} · "
+            f"Machine UUID: {self.vw_identity.machine_uuid or 'not found'}"
+        )
+        identity_label = QLabel(identity_text)
+        identity_label.setWordWrap(True)
+        identity_label.setToolTip(
+            "Derived from Vectorworks AppData (machine_uuid.txt and VW User Log). "
+            "Used to identify this computer in cross-machine sync."
+        )
+        form.addRow("Vectorworks identity", identity_label)
+
+        stored_machine_id = settings.value("sync_machine_id", default_machine_id(), type=str)
+        resolved_machine_id = resolve_sync_machine_id(str(stored_machine_id))
+        self.machine_id = QLineEdit(resolved_machine_id)
+        self.machine_id.setReadOnly(True)
+        self.machine_id.setToolTip("Stable ID from Vectorworks machine_uuid.txt")
         form.addRow("Machine ID", self.machine_id)
 
-        self.machine_label = QLineEdit(settings.value("sync_machine_label", "", type=str))
+        stored_label = settings.value("sync_machine_label", "", type=str)
+        self.machine_label = QLineEdit(resolve_sync_machine_label(str(stored_label)))
+        self.machine_label.setPlaceholderText(self.vw_identity.default_label)
         form.addRow("Machine label", self.machine_label)
 
         self.sync_on_refresh = QCheckBox("Sync when refreshing log data")
@@ -152,7 +176,7 @@ class SettingsDialog(QDialog):
         self.portable_mode.setChecked(settings.value("portable_mode", False, type=bool))
         form.addRow("", self.portable_mode)
 
-        self.autostart = QCheckBox("Start VectorTrack when Windows starts")
+        self.autostart = QCheckBox("Start VectorTrack in the system tray when Windows starts")
         self.autostart.setChecked(settings.value("autostart_enabled", autostart_is_enabled(), type=bool))
         form.addRow("", self.autostart)
 
@@ -196,8 +220,8 @@ class SettingsDialog(QDialog):
             "vw_log_merge_years": self.merge_years.isChecked(),
             "sync_enabled": self.sync_enabled.isChecked(),
             "sync_folder": self.sync_folder.text().strip(),
-            "sync_machine_id": self.machine_id.text().strip() or default_machine_id(),
-            "sync_machine_label": self.machine_label.text().strip(),
+            "sync_machine_id": resolve_sync_machine_id(self.machine_id.text()),
+            "sync_machine_label": resolve_sync_machine_label(self.machine_label.text()),
             "sync_on_refresh": self.sync_on_refresh.isChecked(),
             "minimize_to_tray": self.minimize_to_tray.isChecked(),
             "notifications_enabled": self.notifications_enabled.isChecked(),

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import socket
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from vectortrack.services.vw_identity import (
+    local_machine_id,
+    resolve_sync_machine_id,
+    resolve_vw_identity,
+)
 
 
 @dataclass
@@ -20,8 +24,7 @@ class SyncConfig:
 
 
 def default_machine_id() -> str:
-    hostname = socket.gethostname() or "unknown"
-    return hashlib.sha256(hostname.encode("utf-8")).hexdigest()[:16]
+    return local_machine_id()
 
 
 def sync_config_from_mapping(raw: dict[str, Any] | None) -> SyncConfig:
@@ -38,7 +41,7 @@ def sync_config_from_mapping(raw: dict[str, Any] | None) -> SyncConfig:
 
     resolved_machine_id = ""
     if isinstance(machine_id, str) and machine_id.strip():
-        resolved_machine_id = machine_id.strip()
+        resolved_machine_id = resolve_sync_machine_id(machine_id.strip())
     else:
         resolved_machine_id = default_machine_id()
 
@@ -56,12 +59,14 @@ def sync_config_from_mapping(raw: dict[str, Any] | None) -> SyncConfig:
 
 
 def sync_config_to_mapping(sync_config: SyncConfig) -> dict[str, Any]:
+    identity = resolve_vw_identity()
     return {
         "enabled": sync_config.enabled,
         "folder": sync_config.folder,
         "machine_id": sync_config.machine_id or default_machine_id(),
         "machine_label": sync_config.machine_label,
         "sync_on_refresh": sync_config.sync_on_refresh,
+        "vw_identity": identity.to_mapping(),
     }
 
 

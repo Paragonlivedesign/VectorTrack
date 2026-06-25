@@ -15,6 +15,7 @@ from vectortrack.db.schema import init_database
 from datetime import datetime, timedelta, timezone
 
 from vectortrack.models import AliasRule, BillableProject, Client, TimeSession
+from vectortrack.services.vw_identity import local_machine_id
 
 
 from vectortrack.db.rate_resolver import resolve_rate_for_project
@@ -452,18 +453,19 @@ class Repository:
         file_path: str,
         machine_id: str | None = None,
     ) -> Optional[TimeSession]:
+        resolved_machine_id = local_machine_id() if machine_id is None else machine_id
         with self._connect() as conn:
             row = conn.execute(
                 """
                 SELECT * FROM sessions
                 WHERE file_path=?
-                  AND machine_id IS ?
+                  AND machine_id=?
                   AND source = 'live'
                   AND end_time IS NULL
                 ORDER BY id DESC
                 LIMIT 1
                 """,
-                (file_path, machine_id),
+                (file_path, resolved_machine_id),
             ).fetchone()
         return TimeSession.from_row(row) if row else None
 
@@ -590,6 +592,7 @@ class Repository:
             hourly_rate=self.resolve_hourly_rate(str(getattr(tracking_state, "project_id", ""))),
             live_duration=timedelta(seconds=max(0.0, tracked_seconds)),
             source="live",
+            machine_id=local_machine_id(),
         )
         return self.upsert_open_session(session)
 

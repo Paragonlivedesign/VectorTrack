@@ -44,6 +44,7 @@ class SessionExplorerDialog(QDialog):
         reload_callback: Callable[[], List[UnifiedSession]],
         report_service: Optional[ReportService] = None,
         data_builder: Optional[ReportDataBuilder] = None,
+        machine_display: Callable[[str], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -55,6 +56,7 @@ class SessionExplorerDialog(QDialog):
         self.reload_callback = reload_callback
         self.report_service = report_service
         self.data_builder = data_builder
+        self._machine_display = machine_display or (lambda machine_id: machine_id)
         self.sessions: List[UnifiedSession] = []
         self._day_filter: Optional[date] = None
         self._read_only = repository.is_project_locked(project_id)
@@ -136,7 +138,7 @@ class SessionExplorerDialog(QDialog):
     def _populate_summary(self) -> None:
         active = self._active_sessions()
         total_hours = sum(session.hours for session in active)
-        machines = sorted({session.machine_id for session in active})
+        machines = sorted({self._machine_display(session.machine_id) for session in active})
         conflicts = sum(1 for session in active if session.conflict_ids)
         excluded_count = sum(1 for session in self._display_sessions() if session.is_excluded)
         excluded_note = f" | Excluded: {excluded_count}" if excluded_count else ""
@@ -156,7 +158,7 @@ class SessionExplorerDialog(QDialog):
                 session.end.strftime("%Y-%m-%d %H:%M") if session.end else "Open",
                 f"{session.hours:.2f}",
                 session.file_alias,
-                session.machine_id,
+                self._machine_display(session.machine_id),
                 session.source,
                 f"${session.amount:.2f}",
                 session.status,
@@ -216,7 +218,7 @@ class SessionExplorerDialog(QDialog):
                     session.start.strftime("%Y-%m-%d %H:%M"),
                     session.end.strftime("%Y-%m-%d %H:%M"),
                     f"{session.hours:.2f}",
-                    session.machine_id,
+                    self._machine_display(session.machine_id),
                     session.source,
                 ]
             ):

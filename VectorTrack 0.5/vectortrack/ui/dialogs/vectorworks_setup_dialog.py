@@ -36,7 +36,10 @@ class VectorworksSetupDialog(QDialog):
             "VectorTrack could not find Vectorworks automatically.\n\n"
             "Choose your Vectorworks executable (usually Vectorworks.exe inside a year "
             "folder under Program Files). VectorTrack uses this to detect open drawings "
-            "and to locate Vectorworks Log.txt for history import."
+            "and to locate Vectorworks Log.txt for history import.\n\n"
+            "After linking Vectorworks, you may be prompted to set up Vectorworks Log.txt. "
+            "Enable \"Log time in program\" under Vectorworks Preferences → Session if "
+            "logging is not already on."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)

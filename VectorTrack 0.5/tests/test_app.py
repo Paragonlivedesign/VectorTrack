@@ -71,12 +71,20 @@ class _FakeTrackingService:
 class _FakeTray:
     def __init__(self, _parent) -> None:
         self.visible = False
+        self.status = "inactive"
+        self.paused = False
 
     def show(self) -> None:
         self.visible = True
 
     def hide(self) -> None:
         self.visible = False
+
+    def set_tracking_status(self, status: str) -> None:
+        self.status = status
+
+    def set_paused(self, paused: bool) -> None:
+        self.paused = paused
 
 
 class _FakeHud(QWidget):
